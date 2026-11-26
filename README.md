@@ -1,8 +1,8 @@
 # Endemic
 
-> Endemic is owned and maintained by Ark Security Company (ASC). Endemic is open sourced under the [Apache License 2.0](LICENSE) for use. Endemic is also offered by ASC as a managed service with SSO and MFA, role-based access control, signed audit logs, an encrypted credential vault, and usage policies with spend caps.
+> Endemic is owned and maintained by Ark Security Company (ASC). Endemic is open sourced under the [Apache License 2.0](LICENSE) for use. Endemic is also offered by ASC as a managed service, visit website for more details.
 
-Endemic load tests your staging software with traffic from real AI agents. Give the agents a task and a set of approved tools, and they decide which calls to make while running concurrently. Endemic shows when tool calls arrive in bursts, how latency and errors change as you add agents, and whether an error came from your software or from model throttling.
+Endemic load tests your staging software with traffic from real AI agents. Give the agents a task and a set of approved tools, and they decide which calls to make while running concurrently. Endemic shows when tool calls arrive in bursts, how latency and errors change as you add agents, and whether an error came from your software or from model throttling. The intent of Endemic is to strengthen existing and future software applications for agentic traffic.
 
 A target is an MCP server (Streamable HTTP) or an HTTP API described by an OpenAPI document. Agents run on any vLLM or OpenAI-compatible chat completions endpoint that supports tool calling.
 
