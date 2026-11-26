@@ -35,7 +35,6 @@ type Prepare = Arc<
         + Sync,
 >;
 
-/// Operator API and the agent ramp runs follow unless they hold a set number of agents.
 pub struct Settings {
     token: String,
     body_limit: usize,
@@ -50,7 +49,6 @@ pub struct Settings {
 impl Settings {
     pub fn from_env(env: Env) -> anyhow::Result<Self> {
         let token = config::required(env, "API_BEARER_TOKEN")?;
-        // Security floor on the operator secret, not a deployment choice.
         anyhow::ensure!(
             token.len() >= 32 && token.bytes().all(|b| b.is_ascii_graphic()),
             "API_BEARER_TOKEN must be at least 32 visible ASCII bytes"
@@ -83,7 +81,6 @@ impl Settings {
             },
             traffic: TrafficShape {
                 window_ms,
-                // Covers the hold plus drain, so no call in a stage goes unbucketed.
                 windows: windows(hold_seconds, drain.as_secs(), window_ms)?,
                 session_samples: config::positive(env, "TRAFFIC_SESSION_SAMPLES")?,
             },
@@ -107,7 +104,6 @@ pub struct App {
 }
 
 impl App {
-    /// `prepare` plans a run (discovery, tasks) and returns its agent sessions.
     pub fn new<F, Fut>(settings: Settings, prepare: F) -> Self
     where
         F: Fn(RunRequest) -> Fut + Send + Sync + 'static,
@@ -126,7 +122,6 @@ impl App {
 enum RunStatus {
     Running,
     Cancelled,
-    /// Stopped before any stage: discovery, the SSRF guard, or task generation; see `error`.
     Failed,
     FailedStage,
     ReachedCeiling,

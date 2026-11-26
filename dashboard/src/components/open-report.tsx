@@ -3,7 +3,6 @@ import { FileJson } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { parseReport, type RunReport } from '@/lib/report'
 
-/** Opens a saved GET /runs/{id} JSON file. Reports a clear message for anything else. */
 export function OpenReport({ onOpen, onError }: { onOpen: (report: RunReport) => void; onError: (message: string) => void }) {
   const input = useRef<HTMLInputElement>(null)
   const id = useId()

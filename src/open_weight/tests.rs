@@ -7,7 +7,6 @@ use std::sync::{
     atomic::{AtomicUsize, Ordering::Relaxed},
 };
 
-/// Fixture budgets; production values come from the deployment's runner configuration.
 const BUDGETS: [(&str, &str); 3] = [
     ("AGENT_MAX_MODEL_TURNS", "8"),
     ("AGENT_MAX_TOOL_CALLS", "8"),
@@ -27,12 +26,10 @@ fn settings() -> Vec<(&'static str, &'static str)> {
 }
 
 impl Engine {
-    /// Fixture engine; tests replace `client` with a scripted one.
     pub(super) fn fixture() -> Self {
         Self::from_env(&env_of(&settings())).unwrap()
     }
 
-    /// An engine whose inference server is `respond`.
     pub(crate) fn scripted(
         respond: impl Fn(Request) -> Result<Response, Failure> + Send + Sync + 'static,
     ) -> Self {

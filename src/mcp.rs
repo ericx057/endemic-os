@@ -5,9 +5,7 @@ use crate::{
 use reqwest::{Method, RequestBuilder, Response, StatusCode, Url, header};
 use serde_json::{Value, json};
 
-/// MCP specification revision this client speaks.
 const PROTOCOL: &str = "2025-11-25";
-/// Parse guard: tools/list pages followed before the tool list must be complete.
 const MAX_TOOL_PAGES: usize = 4;
 
 #[cfg(test)]
@@ -17,9 +15,7 @@ pub struct Target {
     wire: Wire,
     url: Url,
     auth: header::HeaderValue,
-    /// None until `discover`; then the run's tool set, which every session must find.
     allowed: Option<Vec<String>>,
-    /// Sorted names of the read-only tools, dispatched in parallel.
     parallel: Vec<String>,
     #[cfg(test)]
     fixture: Option<Box<Fixture>>,
@@ -47,8 +43,6 @@ impl Target {
         }
     }
 
-    /// Lists every tool once and fixes the run's tool set: all listed tools are allowed, and
-    /// those annotated `readOnlyHint: true` are dispatched in parallel.
     pub(crate) async fn discover(mut self) -> Result<(Self, Vec<Tool>), Failure> {
         let mut session = self.connect().await?;
         let tools = std::mem::take(&mut session.tools);
@@ -75,7 +69,6 @@ impl Target {
         let response = self.send(request).await?;
         let mut session_id = response.headers().get("mcp-session-id").cloned();
         if let Some(id) = &mut session_id {
-            // MCP transport: session ids are visible ASCII; the length cap is a parse guard.
             if id.is_empty()
                 || id.len() > 256
                 || !id.as_bytes().iter().all(|b| (0x21..=0x7e).contains(b))
@@ -98,7 +91,6 @@ impl Target {
             trace: None,
         };
         if let Err(error) = session.discover().await {
-            // The discovery failure is the error to report; closing is cleanup only.
             let _ = session.close().await;
             return Err(error);
         }
@@ -280,7 +272,6 @@ impl<'a> Session<'a> {
     }
 }
 
-/// Tool and function names as the OpenAI tools API accepts them: 1-64 of `[A-Za-z0-9_-]`.
 pub(crate) fn valid_name(name: &str) -> bool {
     !name.is_empty()
         && name.len() <= 64
@@ -355,7 +346,6 @@ fn decode_result(body: &[u8], id: u64) -> Result<Option<Value>, Failure> {
         return Ok(None);
     }
     let mut message: Value = serde_json::from_slice(body).map_err(|_| Failure::Target)?;
-    // JSON-RPC 2.0 envelope.
     if message["jsonrpc"] != "2.0" {
         return Err(Failure::Target);
     }

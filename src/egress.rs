@@ -1,8 +1,3 @@
-//! SSRF guard. The runner usually sits inside a private network and fetches user-supplied URLs, so each
-//! run's hosts are resolved once, refused unless every address is public unicast, and the
-//! run's HTTP client is pinned to those addresses: later DNS answers (rebinding) are never
-//! consulted, any other host name fails to resolve, and redirects are not followed.
-
 use reqwest::{
     Url,
     dns::{Name, Resolve, Resolving},
@@ -14,7 +9,6 @@ use std::{
 };
 
 pub struct Egress {
-    /// Tests reach local fixtures over loopback; production never does.
     #[cfg(test)]
     loopback: bool,
 }
@@ -40,8 +34,6 @@ impl Egress {
         public(ip)
     }
 
-    /// A client that reaches only the hosts of `urls`, at the addresses vetted now. No proxy,
-    /// redirects, or retries, so every failure is reported instead of hidden.
     pub async fn client(
         &self,
         urls: &[Url],
@@ -68,7 +60,6 @@ impl Egress {
                     (Some(host), addrs.collect())
                 }
             };
-            // Addresses stay out of the message: it would reveal what our resolver sees.
             if addrs.is_empty() || !addrs.iter().all(|addr| self.allows(addr.ip())) {
                 return Err(format!("{host} resolves to a non-public address"));
             }
@@ -82,7 +73,6 @@ impl Egress {
     }
 }
 
-/// Resolver for names that were not vetted: there are none, by construction.
 struct Refuse;
 
 impl Resolve for Refuse {
@@ -92,9 +82,6 @@ impl Resolve for Refuse {
     }
 }
 
-/// Public unicast only: refuses loopback, private (RFC 1918, ULA), link-local (including the
-/// 169.254.169.254 metadata service), CGNAT, unspecified, multicast, broadcast, reserved,
-/// benchmarking, documentation, and IPv6 ranges that embed or translate IPv4.
 pub fn public(ip: IpAddr) -> bool {
     match ip {
         IpAddr::V4(ip) => public_v4(ip),
@@ -107,26 +94,25 @@ pub fn public(ip: IpAddr) -> bool {
 
 fn public_v4(ip: Ipv4Addr) -> bool {
     let [a, b, c, _] = ip.octets();
-    !(a == 0 // "this network", including 0.0.0.0
+    !(a == 0
         || ip.is_loopback()
         || ip.is_private()
         || ip.is_link_local()
         || ip.is_multicast()
         || ip.is_documentation()
-        || (a == 100 && (64..128).contains(&b)) // CGNAT 100.64.0.0/10
-        || (a == 192 && b == 0 && c == 0) // IETF protocol assignments 192.0.0.0/24
-        || (a == 198 && (b & 0xfe) == 18) // benchmarking 198.18.0.0/15
-        || a >= 240) // reserved 240.0.0.0/4 and broadcast
+        || (a == 100 && (64..128).contains(&b))
+        || (a == 192 && b == 0 && c == 0)
+        || (a == 198 && (b & 0xfe) == 18)
+        || a >= 240)
 }
 
-/// Allowlist: global unicast 2000::/3, minus the special-purpose blocks inside it.
 fn public_v6(ip: Ipv6Addr) -> bool {
     let [first, second, ..] = ip.segments();
     (first & 0xe000) == 0x2000
-        && !(first == 0x2001 && second < 0x0200) // IETF protocol assignments 2001::/23
-        && !(first == 0x2001 && second == 0x0db8) // documentation 2001:db8::/32
-        && first != 0x2002 // 6to4, which embeds IPv4
-        && (first & 0xfff0) != 0x3ff0 // documentation 3fff::/20
+        && !(first == 0x2001 && second < 0x0200)
+        && !(first == 0x2001 && second == 0x0db8)
+        && first != 0x2002
+        && (first & 0xfff0) != 0x3ff0
 }
 
 #[cfg(test)]

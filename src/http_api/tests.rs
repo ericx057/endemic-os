@@ -30,7 +30,6 @@ fn auth() -> header::HeaderValue {
 }
 
 impl Target {
-    /// Production URLs must be HTTPS; tests swap in a plain-HTTP loopback server.
     pub(crate) fn loopback(addr: SocketAddr) -> Self {
         let url = Url::parse(&format!("http://{addr}/api")).unwrap();
         Self::new(url, auth(), &spec(), Wire::fixture()).unwrap()
@@ -51,7 +50,6 @@ pub(crate) struct Seen {
     pub(crate) body: String,
 }
 
-/// An axum stand-in for the staging API that records every request.
 pub(crate) async fn serve() -> (SocketAddr, Arc<Mutex<Vec<Seen>>>) {
     let seen = Arc::new(Mutex::new(Vec::new()));
     let recorded = seen.clone();

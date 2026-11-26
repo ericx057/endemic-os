@@ -1,6 +1,3 @@
-//! The managed-run request (docs/dashboard-plan.md, "Managed runs"): what the user supplies,
-//! validated before anything is fetched.
-
 use crate::{
     runner::{Fault, Pacing},
     task_mix::{self, Persona, WEIGHT_TOTAL},
@@ -10,7 +7,6 @@ use serde::Deserialize;
 use serde_json::error::Category;
 use std::fmt;
 
-/// Sanity bounds on user input (the use case bound is the documented contract).
 pub const USE_CASE_LIMIT: usize = 4096;
 const BEARER_LIMIT: usize = 4096;
 
@@ -41,7 +37,6 @@ struct Credentials {
     bearer: Bearer,
 }
 
-/// The staging token. It lives only as long as the run that uses it, and Debug never shows it.
 #[derive(Deserialize)]
 #[serde(transparent)]
 pub struct Bearer(String);
@@ -53,7 +48,6 @@ impl fmt::Debug for Bearer {
 }
 
 impl Bearer {
-    /// The Authorization header, marked sensitive so the HTTP stack never logs it.
     pub fn header(&self) -> HeaderValue {
         let mut value = HeaderValue::from_str(&format!("Bearer {}", self.0))
             .expect("validated visible ASCII is a valid header value");
@@ -65,7 +59,6 @@ impl Bearer {
 #[derive(Debug)]
 pub struct RunRequest {
     pub url: Url,
-    /// Present for an HTTP API target; absent means `url` is an MCP endpoint.
     pub openapi_url: Option<Url>,
     pub bearer: Bearer,
     pub use_case: Option<String>,
@@ -174,8 +167,6 @@ fn https_url(value: &str, field: &str) -> Result<Url, String> {
         })
 }
 
-/// serde's type errors quote the offending value, which may be the token, so only messages
-/// that name keys or positions are passed through.
 fn describe(error: serde_json::Error) -> String {
     let text = error.to_string();
     let names_keys = text.starts_with("unknown field") || text.starts_with("missing field");

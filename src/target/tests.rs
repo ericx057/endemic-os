@@ -24,7 +24,6 @@ fn traceparent_is_w3c_version_00_with_nonzero_ids_and_sampled_flag() {
 }
 
 impl Wire {
-    /// Fixture limits; production values come from the TARGET_* variables.
     pub(crate) fn fixture() -> Self {
         Self {
             client: crate::config::http_client(Duration::from_secs(3), Duration::from_secs(10))

@@ -1,5 +1,3 @@
-//! The seam between the engines and the system under test: one variant per target kind.
-
 use crate::{
     http_api, mcp,
     runner::{Failure, Metrics, SessionFaults, ToolTrace},
@@ -18,7 +16,6 @@ pub struct Tool {
     pub name: String,
     pub description: Option<String>,
     pub schema: Value,
-    /// Safe to dispatch in parallel: HTTP GET or HEAD, or MCP `readOnlyHint: true`.
     pub read_only: bool,
 }
 
@@ -32,12 +29,9 @@ pub enum Session<'a> {
     Http(http_api::Session<'a>),
 }
 
-/// HTTP settings every target kind shares; the client is the run's pinned one (`egress`).
 pub(crate) struct Wire {
     pub(crate) client: reqwest::Client,
-    /// Largest request body a call may send.
     pub(crate) request_limit: usize,
-    /// Largest response body a call may receive.
     pub(crate) response_limit: usize,
 }
 
@@ -72,7 +66,6 @@ impl<'a> Session<'a> {
         }
     }
 
-    /// Sends one model batch; see `check_batch` for which batches are allowed.
     pub async fn call_group(
         &mut self,
         calls: Vec<(String, Value)>,
@@ -96,7 +89,6 @@ impl<'a> Session<'a> {
     }
 }
 
-/// A batch is one call, or several calls that are all approved for parallel dispatch.
 pub(crate) fn check_batch(
     calls: &[(String, Value)],
     can_parallel: impl Fn(&str) -> bool,
@@ -108,7 +100,6 @@ pub(crate) fn check_batch(
     Ok(())
 }
 
-/// Counts the batch and adds it to the session's sampled trace.
 pub(crate) fn record_batch<'n>(
     metrics: &Metrics,
     trace: &mut Option<ToolTrace<'_>>,
@@ -120,8 +111,6 @@ pub(crate) fn record_batch<'n>(
     }
 }
 
-/// Sends prepared calls concurrently, timing each into the hotspot row named by its label.
-/// Results keep call order.
 pub(crate) async fn dispatch<F>(
     metrics: &Metrics,
     calls: impl Iterator<Item = (String, F)>,
@@ -141,8 +130,6 @@ where
         .collect()
 }
 
-/// W3C trace context for one agent session: every request shares the trace id
-/// and gets a fresh span id, so the target's own tracing groups work by session.
 pub struct TraceContext {
     trace_id: String,
 }
@@ -159,14 +146,11 @@ impl TraceContext {
     }
 
     pub fn traceparent(&self) -> HeaderValue {
-        // W3C Trace Context: version 00, trace id, parent span id, flags 01 (sampled).
         let value = format!("00-{}-{:016x}-01", self.trace_id, nonzero_id());
         HeaderValue::from_str(&value).expect("hex digits are a valid header value")
     }
 }
 
-/// Trace and span ids need uniqueness, not secrecy, so std's randomly keyed
-/// hasher over a process-wide counter and the clock stands in for a rand dependency.
 fn nonzero_id() -> u64 {
     static COUNTER: AtomicU64 = AtomicU64::new(0);
     loop {

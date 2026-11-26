@@ -1,5 +1,3 @@
-// Calls go to /api, which the Next.js server proxies to ENDEMIC_API_URL with the
-// operator token added server-side. No other network requests are made.
 import { parseReport, type RunReport } from './report'
 import type { RunRequest } from './runRequest'
 
@@ -21,7 +19,6 @@ const MESSAGES: Record<number, string> = {
 async function call(path: string, init?: RequestInit): Promise<unknown> {
   const response = await fetch(`/api${path}`, init)
   if (!response.ok) {
-    // A 422 carries the runner's reason, which never includes the token.
     const reason = response.status === 422 ? await response.json().then((body) => body?.error, () => null) : null
     const fallback = MESSAGES[response.status] ?? `The runner answered HTTP ${response.status}.`
     throw new ApiError(response.status, typeof reason === 'string' ? `The runner rejected the request: ${reason}` : fallback)
@@ -29,7 +26,6 @@ async function call(path: string, init?: RequestInit): Promise<unknown> {
   return response.status === 202 && init?.method === 'DELETE' ? null : response.json()
 }
 
-/** The body carries the staging token; it is sent once and not kept anywhere in the page. */
 export const startRun = async (body: RunRequest): Promise<RunReport> =>
   parseReport(await call('/runs', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) }))
 

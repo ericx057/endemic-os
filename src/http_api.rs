@@ -1,5 +1,3 @@
-//! HTTP API target: each OpenAPI operation is a tool, each call one request.
-
 use crate::{
     runner::{Failure, Metrics, ToolTrace},
     target::{self, Tool, TraceContext, Wire},
@@ -14,7 +12,6 @@ pub struct Target {
     wire: Wire,
     url: Url,
     auth: header::HeaderValue,
-    /// Built once from the spec; `operations[i]` is how to call `tools[i]`.
     tools: Vec<Tool>,
     operations: Vec<Operation>,
 }
@@ -26,7 +23,6 @@ pub struct Session<'a> {
 }
 
 impl Target {
-    /// Every operation in `spec` becomes a tool; GET and HEAD ones are read-only.
     pub(crate) fn new(
         url: Url,
         auth: header::HeaderValue,
@@ -54,7 +50,6 @@ impl Target {
             .collect()
     }
 
-    /// Nothing to negotiate: the tools came from the spec at startup.
     pub async fn connect(&self) -> Result<Session<'_>, Failure> {
         Ok(Session {
             target: self,
@@ -175,15 +170,12 @@ fn url(
     Ok(url)
 }
 
-/// Substitutes `{name}` placeholders in one template segment. The caller's
-/// segment push percent-encodes the result, including any '/' in a value.
 fn fill(segment: &str, path: Option<&Map<String, Value>>) -> Result<String, Failure> {
     let (mut filled, mut rest) = (String::new(), segment);
     while let Some(start) = rest.find('{') {
         let end = start + rest[start..].find('}').ok_or(Failure::Runner)?;
         let value = path.and_then(|path| path.get(&rest[start + 1..end]));
         let value = scalar(value.ok_or(Failure::Runner)?)?;
-        // The url crate silently drops "." and ".." segments, which would change the route.
         if matches!(value.as_str(), "" | "." | "..") {
             return Err(Failure::Runner);
         }
@@ -221,7 +213,6 @@ async fn send(request: RequestBuilder, limit: usize) -> Result<Value, Failure> {
         }
         body.extend_from_slice(&chunk);
     }
-    // JSON when it parses, else text, whatever the content type says.
     let body = serde_json::from_slice::<Value>(&body)
         .unwrap_or_else(|_| String::from_utf8_lossy(&body).into_owned().into());
     Ok(json!({"status": status.as_u16(), "body": body}))

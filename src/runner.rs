@@ -19,9 +19,6 @@ pub use metrics::{Criterion, Failure, Metrics, PassCriteria, StageResult};
 pub use pacing::Pacing;
 pub(crate) use traffic::{ToolTrace, TrafficShape};
 
-/// Runs `agents` concurrent session loops for `duration`, then gives in-flight sessions up to
-/// `drain` to finish before counting them as interrupted. Each loop passes its agent index
-/// (0 to `agents - 1`) to `session`.
 pub async fn run_stage<F, Fut>(
     agents: usize,
     duration: Duration,

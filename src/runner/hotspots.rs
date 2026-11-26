@@ -1,5 +1,3 @@
-//! Which parts of the target agents visit most: per-tool call counts, errors, and latency.
-
 use super::metrics::{Histogram, Latencies};
 use serde::Serialize;
 use std::{
@@ -70,7 +68,6 @@ impl Hotspots {
 pub struct Hotspot {
     pub(crate) tool: String,
     pub(crate) calls: u64,
-    /// Fraction (0..=1) of all tool calls in the stage.
     share: f64,
     pub(crate) target_errors: u64,
     pub(crate) p95_ms: Option<u64>,

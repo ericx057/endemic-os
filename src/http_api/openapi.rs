@@ -1,25 +1,19 @@
-//! OpenAPI 3 operations to agent tools: every operation is a tool named by its operationId.
-
 use crate::target::Tool;
 use anyhow::{Context, Result, anyhow, bail, ensure};
 use reqwest::Method;
 use serde_json::{Map, Value, json};
 
-/// Parse guards on the target's spec document: `$ref` nesting and tool description length.
 const REF_DEPTH: usize = 8;
 const DESCRIPTION_LIMIT: usize = 1024;
-/// The operation fields of an OpenAPI 3 Path Item Object.
 const METHODS: [&str; 8] = [
     "get", "put", "post", "delete", "patch", "head", "options", "trace",
 ];
 
-/// What a call needs to build its request; the tool carries what the model sees.
 pub(super) struct Operation {
     pub(super) method: Method,
     pub(super) path: String,
     pub(super) query: Vec<String>,
     pub(super) body: bool,
-    /// Hotspot row label, so the report reads as routes.
     pub(super) label: String,
 }
 
@@ -49,8 +43,6 @@ pub(super) fn operations(spec: &Value) -> Result<Vec<(Tool, Operation)>> {
     Ok(converted)
 }
 
-// operations without an operationId fail the run; naming them from method and path
-// needs a collision rule.
 fn operation(spec: &Value, path: &str, method: &str, item: &Value) -> Result<(Tool, Operation)> {
     let op = &item[method];
     let method = Method::from_bytes(method.to_ascii_uppercase().as_bytes())?;
@@ -96,8 +88,6 @@ fn parameters(item: &Value) -> impl Iterator<Item = &Value> {
     item["parameters"].as_array().into_iter().flatten()
 }
 
-/// Path and query parameters keyed by name; operation-level entries override
-/// path-level ones because they come later.
 #[derive(Default)]
 struct Params {
     path: Map<String, Value>,
@@ -106,7 +96,6 @@ struct Params {
 }
 
 impl Params {
-    // header and cookie parameters are dropped; add them when a target requires one.
     fn add(&mut self, param: Value) -> Result<()> {
         let name = param["name"].as_str().context("parameter has no name")?;
         let schema = param["schema"].clone();
@@ -156,7 +145,6 @@ fn object(properties: Map<String, Value>, required: Vec<Value>) -> Value {
     schema
 }
 
-// exact application/json only; vendor types (application/vnd.x+json) need a match rule.
 fn json_body(body: &Value, name: &str) -> Result<(Value, bool)> {
     let schema = body["content"]["application/json"]
         .as_object()
@@ -177,8 +165,6 @@ fn description(op: &Value) -> Option<String> {
     Some(text[..end].to_owned())
 }
 
-/// Replaces local `#/components/...` references with their targets. Cycles hit
-/// the depth cap, since a recursive schema cannot be inlined.
 fn inline(value: &Value, spec: &Value, depth: usize) -> Result<Value> {
     match value {
         Value::Object(map) => match map.get("$ref").and_then(Value::as_str) {
