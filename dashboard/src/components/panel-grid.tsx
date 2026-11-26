@@ -10,7 +10,6 @@ function Panel({ id, title, onHide, children }: { id: PanelId; title: string; on
   return (
     <section aria-labelledby={`panel-${id}`} className="flex h-full flex-col overflow-hidden rounded-md border border-border bg-black">
       <header className="flex items-center border-b border-border">
-        {/* Only this strip starts a drag, so chart hover and table scrolling keep working. */}
         <div className="panel-handle flex min-w-0 flex-1 cursor-grab items-center gap-1.5 px-2 py-1.5 active:cursor-grabbing">
           <GripVertical aria-hidden className="size-3.5 shrink-0 text-white/35" />
           <h2 id={`panel-${id}`} className="truncate text-sm font-medium">

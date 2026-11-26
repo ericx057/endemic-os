@@ -1,6 +1,3 @@
-//! Test-only stage settings; production values come from the RUN_*, STAGE_*, and TRAFFIC_*
-//! variables.
-
 use super::{Metrics, PassCriteria, TrafficShape};
 use std::time::Duration;
 

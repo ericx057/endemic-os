@@ -149,12 +149,10 @@ impl Metrics {
         self.input_tokens.fetch_add(input, Relaxed);
         self.output_tokens.fetch_add(output, Relaxed);
     }
-    /// `messages` completions had reasoning or text dropped; `tokens` is what usage reported.
     pub fn reasoning_discarded(&self, messages: u64, tokens: u64) {
         self.discarded_messages.fetch_add(messages, Relaxed);
         self.discarded_tokens.fetch_add(tokens, Relaxed);
     }
-    /// One tool call: feeds target latency and the per-tool hotspots.
     pub(crate) fn tool_call(&self, tool: &str, elapsed: Duration, ok: bool) {
         self.target.record(elapsed);
         self.hotspots.record(tool, elapsed, ok);
@@ -218,11 +216,9 @@ impl Metrics {
     }
 }
 
-/// Completions whose reasoning or text outside tool calls was dropped before history.
 #[derive(Clone, Serialize)]
 pub struct ReasoningDiscarded {
     pub messages: u64,
-    /// From `usage.completion_tokens_details.reasoning_tokens`; 0 when vLLM omits it.
     pub tokens: u64,
 }
 
@@ -250,7 +246,6 @@ pub struct StageResult {
     pub output_tokens: u64,
     pub reasoning_discarded: ReasoningDiscarded,
     pub traffic: TrafficReport,
-    /// Tools agents called, most visited first.
     pub hotspots: Vec<Hotspot>,
     pub injected: BTreeMap<String, Injected>,
     pub runner: Latencies,
@@ -258,13 +253,10 @@ pub struct StageResult {
     pub inference: Latencies,
 }
 
-/// What a stage must show to pass.
 #[derive(Clone, Copy)]
 pub struct PassCriteria {
-    /// Runner overhead percentiles: the runner must not be the bottleneck.
     pub runner_p95_ms: u64,
     pub runner_p99_ms: u64,
-    /// Errors plus interrupted sessions must stay below this percent of all finished sessions.
     pub error_budget_percent: u64,
 }
 

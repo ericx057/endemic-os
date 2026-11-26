@@ -13,8 +13,6 @@ use axum::{
 use serde::Deserialize;
 use serde_json::{Value, json};
 
-/// MCP specification revisions this server implements; LEGACY[0] is the newest
-/// initialize-based revision, answered when a client requests one it does not know.
 const LEGACY: [&str; 3] = ["2025-11-25", "2025-06-18", "2025-03-26"];
 const MODERN: &str = "2026-07-28";
 const INSTRUCTIONS: &str = "Run managed agentic load tests against a staging target: Endemic discovers its tools, generates user tasks, and either holds a set number of agents or ramps agents until a stage fails or the ceiling is reached. Ask for operator confirmation before starting or cancelling a run.";
@@ -228,7 +226,6 @@ async fn call(app: App, params: &Value) -> Result<Value, CallError> {
         .ok_or(CallError::Invalid)?;
     match name {
         "start_run" => {
-            // Deserialization errors could quote the token, so they collapse to Invalid.
             let args: StartRun =
                 serde_json::from_value(arguments).map_err(|_| CallError::Invalid)?;
             let request = RunRequest::new(

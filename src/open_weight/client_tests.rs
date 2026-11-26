@@ -2,7 +2,6 @@ use super::*;
 use crate::config::tests::{assert_each_required, env_of};
 use serde_json::json;
 
-/// Fixture settings; production values come from the deployment's runner configuration.
 pub(crate) const SETTINGS: [(&str, &str); 11] = [
     ("VLLM_CONNECT_TIMEOUT_SECONDS", "3"),
     ("VLLM_TIMEOUT_SECONDS", "20"),
@@ -290,7 +289,6 @@ fn discards_reasoning_and_text_outside_tool_calls_and_counts_them() {
         message,
         json!({"role":"assistant","content":null,"tool_calls":call})
     );
-    // Without usage details only the dropped message is counted; tokens are never estimated.
     let reasoning = json!({"role":"assistant","content":null,"reasoning":"hmm","tool_calls":call});
     assert!(matches!(
         turn(reasoning, Some(json!(null))),

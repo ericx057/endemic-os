@@ -1,16 +1,10 @@
-//! Task generation: one inference call at run start turns the target's tools and the user's
-//! use case into the objectives agents pursue.
-
 use super::Engine;
 use crate::{runner::Failure, target::Tool};
 use serde_json::{Value, json};
 
-/// Parse guard on each generated task, matching the use case bound.
 const TASK_LIMIT: usize = crate::request::USE_CASE_LIMIT;
 
 impl Engine {
-    /// Asks the model for `count` distinct, concrete user tasks. Anything else fails the run:
-    /// there is no fallback task.
     pub async fn tasks(
         &self,
         tools: &[Tool],
@@ -28,7 +22,6 @@ impl Engine {
             .iter()
             .map(|tool| json!({"name": tool.name, "description": tool.description}))
             .collect();
-        // The tools and use case are untrusted data, so they go in as JSON, not prose.
         let user = json!({"tools": tools, "use_case": use_case}).to_string();
         let messages = [
             json!({"role": "system", "content": system}),

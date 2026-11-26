@@ -28,7 +28,6 @@ pub(super) struct Client {
 }
 
 pub(super) enum Turn {
-    /// Parsed calls plus the assistant message to append to the conversation verbatim.
     Calls(Vec<Call>, Value),
     Done,
 }
@@ -85,7 +84,6 @@ struct Message {
     content: Option<String>,
     refusal: Option<String>,
     tool_calls: Option<Vec<ToolCall>>,
-    /// vLLM's reasoning parser output; older releases name it `reasoning_content`.
     reasoning_content: Option<String>,
     reasoning: Option<String>,
 }
@@ -140,7 +138,6 @@ impl Client {
         parse_turn(result?, self.arguments_limit, metrics)
     }
 
-    /// One tool-free completion whose content must match `response_format`; returns the text.
     pub(super) async fn answer(
         &self,
         messages: &[Value],
@@ -279,9 +276,7 @@ fn parse_turn(
     if role != "assistant" || refusal.is_some_and(|text| !text.is_empty()) {
         return Err(Failure::Inference);
     }
-    // OpenAI chat completions omit `tool_calls` when the model calls nothing.
     let calls = tool_calls.unwrap_or_default();
-    // Reasoning and any text beside tool calls never enter history: only the calls are kept.
     let text = |value: &Option<String>| value.as_deref().is_some_and(|text| !text.is_empty());
     let dropped =
         text(&reasoning_content) || text(&reasoning) || (!calls.is_empty() && text(&content));
@@ -299,13 +294,11 @@ fn parse_turn(
         {
             return Ok(Turn::Done);
         }
-        // The engine bounds the count by the session's remaining tool-call budget.
         "tool_calls" if !calls.is_empty() => {}
         _ => return Err(Failure::Inference),
     }
     let mut parsed: Vec<Call> = Vec::with_capacity(calls.len());
     for ToolCall { id, kind, function } in &calls {
-        // The id length cap is a parse guard; ids echo back into the next request.
         if kind != "function"
             || !(1..=128).contains(&id.len())
             || !id.bytes().all(|byte| byte.is_ascii_graphic())
@@ -339,14 +332,12 @@ fn endpoint(value: &str) -> Result<Url> {
             && url.password().is_none()
             && url.query().is_none()
             && url.fragment().is_none()
-            // OpenAI-compatible chat completions route.
             && url.path().ends_with("/v1/chat/completions"),
         "VLLM_URL must be an HTTPS /v1/chat/completions endpoint without credentials, query, or fragment"
     );
     Ok(url)
 }
 
-/// The length caps are sanity bounds on header values, not deployment choices.
 fn bearer(token: &str) -> Result<header::HeaderValue> {
     ensure!(
         (1..=4096).contains(&token.len()) && token.bytes().all(|byte| byte.is_ascii_graphic()),
@@ -365,7 +356,6 @@ fn model(model: String) -> Result<String> {
     Ok(model)
 }
 
-/// The OpenAI chat completions API accepts temperatures from 0 to 2.
 fn temperature(value: &str) -> Result<f64> {
     value
         .parse()
@@ -374,7 +364,6 @@ fn temperature(value: &str) -> Result<f64> {
         .context("VLLM_TEMPERATURE must be a number from 0.0 to 2.0")
 }
 
-/// Passed to the model's chat template verbatim, for example a reasoning switch.
 fn template_kwargs(value: &str) -> Result<Value> {
     serde_json::from_str::<Value>(value)
         .ok()

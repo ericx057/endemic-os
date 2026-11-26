@@ -1,9 +1,3 @@
-// Dev-only query parameters for headless screenshots (a file input cannot be
-// scripted there). Production builds ignore them.
-//   ?fixture=sample      load fixtures/sample-run.json
-//   ?layout=<json>       seed the stored panel layout (validated like any stored value)
-//   ?panels=open         open the Panels menu
-//   ?sheet=form|review   open the New run sheet filled with example values, at the form or review step
 import { LAYOUT_KEY } from './layout'
 import type { RunForm } from './runRequest'
 
@@ -33,6 +27,5 @@ if (layout != null) {
   try {
     localStorage.setItem(LAYOUT_KEY, layout)
   } catch {
-    // Storage blocked: the default layout is used.
   }
 }

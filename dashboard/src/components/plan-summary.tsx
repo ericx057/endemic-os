@@ -3,7 +3,6 @@ import { describeFault, describePacing } from '@/lib/runRequest'
 
 const KIND: Record<RunPlan['target_kind'], string> = { mcp: 'MCP endpoint', http: 'HTTP API (OpenAPI)' }
 
-/** What Endemic decided for the run, read-only. Tool names come from the target and render as text. */
 export function PlanSummary({ plan }: { plan: RunPlan }) {
   return (
     <dl className="grid grid-cols-[7.5rem_minmax(0,1fr)] gap-x-4 gap-y-3 text-sm">

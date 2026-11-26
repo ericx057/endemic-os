@@ -1,6 +1,3 @@
-//! Managed-run planning: from the user's request to the run's tools, parallel set, tasks, and
-//! agent sessions. Endemic decides all of it; the report records it under `plan`.
-
 use crate::{
     config::{self, Env},
     egress::Egress,
@@ -28,7 +25,6 @@ use std::{
 };
 
 pub type Session = Pin<Box<dyn Future<Output = Result<(), Failure>> + Send>>;
-/// Starts one agent session from the agent's index and the stage's metrics.
 pub type Sessions = Arc<dyn Fn(usize, Arc<Metrics>) -> Session + Send + Sync>;
 
 #[derive(Clone, Copy, Serialize)]
@@ -38,7 +34,6 @@ pub enum TargetKind {
     Http,
 }
 
-/// What Endemic decided; fields not determined yet (or ever, for a failed run) stay empty.
 #[derive(Clone, Serialize)]
 pub struct Plan {
     pub target_kind: TargetKind,
@@ -129,7 +124,6 @@ impl Planner {
         if let Err(error) = request.faults.iter().try_for_each(fits) {
             return Err(Failed { plan, error });
         }
-        // more tools than RUN_MAX_TOOLS fails the run; there is no selection heuristic.
         if tools.is_empty() || tools.len() > self.max_tools {
             let error = format!(
                 "the target exposes {} tools; a run needs 1 to {} (RUN_MAX_TOOLS)",
@@ -234,7 +228,6 @@ impl Planner {
     ) -> Result<Value, String> {
         let fail = |what: String| format!("the OpenAPI spec at {url} {what}");
         let mut get = client.get(url.clone()).header(ACCEPT, "application/json");
-        // The token goes only to the target's own origin; a spec hosted elsewhere gets none.
         if url.origin() == request.url.origin() {
             get = get.header(AUTHORIZATION, request.bearer.header());
         }

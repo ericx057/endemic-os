@@ -22,9 +22,7 @@ pub struct Budget {
 
 pub struct Engine {
     client: Client,
-    /// Model completions per session, including the final answer.
     max_turns: usize,
-    /// Tool calls per session, across all turns.
     max_tool_calls: usize,
     result_limit: usize,
 }

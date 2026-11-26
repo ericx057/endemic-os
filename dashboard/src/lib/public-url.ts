@@ -1,4 +1,3 @@
-/** Validates a required public URL setting; throws a message meant for the terminal. */
 export function publicUrl(name: string, value: string | undefined, protocols: string[]): string {
   if (!value) throw new Error(`${name} is not set. Set it before running the dashboard.`)
   let url: URL

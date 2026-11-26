@@ -56,7 +56,6 @@ const components: ComponentProps<typeof Markdown>['components'] = {
   td: (props) => <td className="border-b border-white/10 py-2 pr-4 align-top text-white/80" {...props} />,
 }
 
-/** Renders trusted-format docs; raw HTML in the source is dropped, not rendered. */
 export function SetupMarkdown({ markdown }: { markdown: string }) {
   return (
     <Markdown skipHtml remarkPlugins={[remarkGfm]} components={components}>

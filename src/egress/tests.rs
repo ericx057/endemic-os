@@ -96,7 +96,6 @@ async fn client_reaches_only_vetted_hosts_at_vetted_addresses() {
     let app = axum::Router::new().fallback(|| async { "pinned" });
     tokio::spawn(async move { axum::serve(listener, app).await.unwrap() });
 
-    // "localhost" resolves from the hosts file, so this needs no network.
     let client = Egress::loopback()
         .client(
             &urls(&[&format!("http://localhost:{port}/")]),
@@ -114,7 +113,6 @@ async fn client_reaches_only_vetted_hosts_at_vetted_addresses() {
         .await
         .unwrap();
     assert_eq!(body, "pinned");
-    // Any other name goes to the refusing resolver instead of DNS.
     let error = client
         .get(format!("http://unvetted.invalid:{port}/"))
         .send()

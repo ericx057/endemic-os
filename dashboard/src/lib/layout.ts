@@ -1,5 +1,3 @@
-// Panel grid state: positions per breakpoint plus hidden panels, persisted to
-// localStorage under a versioned key. Hidden panels keep their last slot.
 
 export const LAYOUT_KEY = 'endemic.dashboard.layout.v2'
 const VERSION = 2
@@ -54,7 +52,6 @@ const parseItems = (value: unknown): Item[] | null => {
   return valid.length === items.length && unique ? valid : null
 }
 
-/** Parses a stored layout; anything invalid or from another version yields the default. */
 export function parseState(raw: string | null): LayoutState {
   try {
     const value = raw == null ? null : JSON.parse(raw)
@@ -80,7 +77,6 @@ export function saveLayout(storage: Storage, state: LayoutState): void {
   try {
     storage.setItem(LAYOUT_KEY, JSON.stringify(state))
   } catch {
-    // private windows and blocked storage just lose the layout on reload.
   }
 }
 
@@ -88,7 +84,6 @@ export function resetLayout(storage: Storage): LayoutState {
   try {
     storage.removeItem(LAYOUT_KEY)
   } catch {
-    // Same as saveLayout: nothing else to do when storage is unavailable.
   }
   return defaultState()
 }
@@ -99,7 +94,6 @@ const merge = (previous: Item[], next: readonly Item[]): Item[] => {
   return [...kept, ...[...updated.values()].map(({ i, x, y, w, h }) => ({ i, x, y, w, h }))]
 }
 
-/** Applies positions reported by the grid; panels it did not report keep their slot. */
 export function withLayouts(state: LayoutState, next: Partial<Record<Breakpoint, readonly Item[]>>): LayoutState {
   return {
     ...state,
@@ -115,7 +109,6 @@ export const showPanel = (state: LayoutState, id: PanelId): LayoutState => ({
   hidden: state.hidden.filter((hidden) => hidden !== id),
 })
 
-/** Grid layouts for visible panels, with default slots for any never placed and minimum sizes applied. */
 export function visibleLayouts(state: LayoutState) {
   const forBreakpoint = (breakpoint: Breakpoint) =>
     PANELS.filter((panel) => !state.hidden.includes(panel.id)).map((panel) => {

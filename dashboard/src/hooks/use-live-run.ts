@@ -4,7 +4,6 @@ import type { RunReport } from '@/lib/report'
 
 const POLL_MS = 2000
 
-/** Polls GET /runs/{id} every 2 s while a live run is running. */
 export function useLiveRun(
   report: RunReport | null,
   live: boolean,
@@ -26,6 +25,5 @@ export function useLiveRun(
       stopped = true
       clearTimeout(timer)
     }
-    // Each new report object schedules the next poll.
   }, [report, running, id, onReport, onError])
 }

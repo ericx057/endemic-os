@@ -96,7 +96,7 @@ async fn malformed_rpc_and_unsupported_protocol_fail_before_dispatch() {
 }
 
 #[tokio::test]
-async fn mcp_start_report_and_cancel_respect_run_scope() {
+async fn mcp_start_report_and_cancel_runs() {
     let app = router(App::fixture(Settings::fixture(), |_, _| {
         std::future::pending::<Result<(), Failure>>()
     }));

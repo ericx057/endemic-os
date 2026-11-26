@@ -4,7 +4,6 @@ import { errorRows, type StageReport } from '@/lib/report'
 import { Legend, TooltipBox } from './mono'
 import { AXIS, pct } from './format'
 
-// Stack order: software under test first, then model-side, then runner-side.
 const SOURCES = [
   { key: 'target', label: 'Target errors', fill: '#ffffff' },
   { key: 'throttled', label: 'Inference throttled', fill: 'url(#hatch)' },

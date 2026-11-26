@@ -11,7 +11,6 @@ const SERIES: Series[] = [
 ]
 const config = Object.fromEntries(SERIES.map((s) => [s.key, { label: s.label, color: '#ffffff' }]))
 
-/** Powers of ten that bracket the data, so the log axis starts and ends on a labeled tick. */
 function decades(rows: ReturnType<typeof latencyRows>) {
   const values = rows.flatMap((r) => [r.target, r.inference, r.runner]).filter((v): v is number => v != null && v > 0)
   const low = Math.floor(Math.log10(Math.min(...values, 10)))

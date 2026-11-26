@@ -159,7 +159,6 @@ fn rejects_invalid_requests_with_a_clear_message() {
 
 #[test]
 fn errors_and_debug_never_show_the_bearer() {
-    // A token sent where an object belongs: serde's own message would quote it.
     let error = parse(&format!(
         r#"{{"target":{{"url":"https://s.example.com"}},"credentials":"{TOKEN}"}}"#
     ))
@@ -179,7 +178,6 @@ fn errors_and_debug_never_show_the_bearer() {
 }
 
 impl RunRequest {
-    /// A request for a plain-HTTP local fixture, which production validation refuses.
     pub(crate) fn loopback(url: &str, openapi_url: Option<&str>, use_case: Option<&str>) -> Self {
         Self {
             url: Url::parse(url).unwrap(),

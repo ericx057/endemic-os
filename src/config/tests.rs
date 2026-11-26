@@ -1,7 +1,6 @@
 use super::*;
 use std::collections::HashMap;
 
-/// An environment holding exactly `pairs`, for startup validation tests.
 pub(crate) fn env_of(pairs: &[(&str, &str)]) -> impl Fn(&str) -> Result<String, VarError> {
     let vars: HashMap<String, String> = pairs
         .iter()
@@ -10,7 +9,6 @@ pub(crate) fn env_of(pairs: &[(&str, &str)]) -> impl Fn(&str) -> Result<String, 
     move |name| vars.get(name).cloned().ok_or(VarError::NotPresent)
 }
 
-/// Asserts that `load` succeeds with `pairs` and fails naming each variable when it is missing.
 pub(crate) fn assert_each_required<T>(pairs: &[(&str, &str)], load: impl Fn(Env) -> Result<T>) {
     assert!(load(&env_of(pairs)).is_ok(), "complete settings load");
     for (index, (name, _)) in pairs.iter().enumerate() {

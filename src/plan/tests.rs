@@ -10,7 +10,6 @@ use std::{
     sync::{Arc, Mutex},
 };
 
-/// Fixture planning settings; production values come from the deployment's runner config.
 const SETTINGS: [(&str, &str); 7] = [
     ("TARGET_CONNECT_TIMEOUT_SECONDS", "3"),
     ("TARGET_TIMEOUT_SECONDS", "10"),
@@ -23,7 +22,6 @@ const SETTINGS: [(&str, &str); 7] = [
 pub(crate) const TASKS: [&str; 2] = ["Search for order 1.", "Refund order 2."];
 
 impl Planner {
-    /// A planner that may reach loopback fixtures; production egress refuses them.
     pub(crate) fn loopback(engine: Engine) -> Self {
         Self {
             egress: Egress::loopback(),
@@ -51,8 +49,6 @@ fn completion(finish: &str, message: Value) -> reqwest::Response {
         .into()
 }
 
-/// A stand-in vLLM: the planning call gets `TASKS`; an agent calls `search` once, then stops.
-/// Every request body is kept.
 pub(crate) fn inference(
     seen: Arc<Mutex<Vec<Value>>>,
 ) -> impl Fn(reqwest::Request) -> Result<reqwest::Response, Failure> + Send + Sync + 'static {
@@ -75,8 +71,6 @@ pub(crate) fn inference(
     }
 }
 
-/// A stand-in MCP server over loopback HTTP, listing `tools` and recording each
-/// request's method and Authorization header.
 pub(crate) async fn mcp_server(tools: Value) -> (SocketAddr, Arc<Mutex<Vec<(String, String)>>>) {
     let seen = Arc::new(Mutex::new(Vec::new()));
     let recorded = seen.clone();
@@ -147,7 +141,6 @@ async fn mcp_run_is_planned_from_discovery_and_generated_tasks() {
             .all(|(_, auth)| auth == &format!("Bearer {FIXTURE_TOKEN}"))
     );
 
-    // Round-robin: agents 0, 1, 2 pursue tasks 0, 1, 0.
     let metrics = Arc::new(Metrics::default());
     for agent in 0..3 {
         assert_eq!(sessions(agent, metrics.clone()).await, Ok(()));
@@ -163,7 +156,6 @@ async fn mcp_run_is_planned_from_discovery_and_generated_tasks() {
     assert_eq!(objectives, [TASKS[0], TASKS[1], TASKS[0]]);
 }
 
-/// A loopback HTTP API serving its own OpenAPI document at /openapi.json.
 async fn http_api(spec: Value) -> (SocketAddr, Arc<Mutex<Vec<String>>>) {
     let auth = Arc::new(Mutex::new(Vec::new()));
     let recorded = auth.clone();
@@ -192,7 +184,6 @@ async fn http_run_turns_every_operation_into_a_tool() {
     let base = format!("http://{addr}/api");
     let spec = format!("http://{addr}/openapi.json");
     let request = RunRequest::loopback(&base, Some(&spec), None);
-    // The fixture spec has four operations; RUN_MAX_TOOLS is three.
     let Failed { plan, error } = planner.prepare(request).await.err().unwrap();
     assert_eq!(
         error,
@@ -232,7 +223,6 @@ async fn spec_fetch_is_bounded_and_must_be_openapi_json() {
 
 #[tokio::test]
 async fn failures_before_stages_keep_what_was_decided() {
-    // SSRF guard: production egress refuses the loopback fixture before any request.
     let planner = Planner {
         egress: Egress::new(),
         ..Planner::loopback(Engine::scripted(|_| unreachable!()))
@@ -242,7 +232,6 @@ async fn failures_before_stages_keep_what_was_decided() {
     assert_eq!(error, "127.0.0.1 resolves to a non-public address");
     assert!(plan.tools.is_empty() && plan.tasks.is_empty());
 
-    // Task generation failure: tools are known, tasks are not.
     let (addr, _) = mcp_server(mcp_tools()).await;
     let planner = Planner::loopback(Engine::scripted(|_| Err(Failure::Inference)));
     let request = RunRequest::loopback(&format!("http://{addr}/mcp"), None, None);
@@ -251,7 +240,6 @@ async fn failures_before_stages_keep_what_was_decided() {
     assert_eq!(plan.tools, ["search", "refund"]);
     assert!(plan.tasks.is_empty());
 
-    // Discovery failure: nothing listens on the fixture's port any more.
     let closed = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
     let addr = closed.local_addr().unwrap();
     drop(closed);

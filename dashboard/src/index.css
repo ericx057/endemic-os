@@ -50,7 +50,6 @@
 }
 
 :root {
-    /* Dark only: black ground, white ink, grays for structure. */
     color-scheme: dark;
     --background: #000000;
     --foreground: #ffffff;
@@ -96,7 +95,6 @@
   .display { font-variation-settings: "wdth" 62; }
 }
 
-/* Grid chrome: quiet until hovered or focused. */
 .react-grid-item.react-grid-placeholder { background: #ffffff; opacity: 0.08; border-radius: var(--radius); }
 .react-grid-item > .react-resizable-handle { opacity: 0.35; }
 .react-grid-item:hover > .react-resizable-handle { opacity: 1; }

@@ -121,7 +121,6 @@ async fn every_request_carries_a_session_scoped_traceparent() {
 }
 
 impl Target {
-    /// A target that has not listed its tools yet, answered by `respond` instead of a network.
     pub(crate) fn discovering(
         respond: impl Fn(reqwest::Request) -> Result<Response, Failure> + Send + Sync + 'static,
     ) -> Self {
@@ -137,7 +136,6 @@ impl Target {
         }
     }
 
-    /// A discovered target allowing exactly the comma-separated `allowed` tools.
     pub(crate) fn fixture(
         allowed: &str,
         respond: impl Fn(reqwest::Request) -> Result<Response, Failure> + Send + Sync + 'static,

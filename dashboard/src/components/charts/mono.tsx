@@ -1,4 +1,3 @@
-// Monochrome encoding: series differ by dash, opacity and marker shape, never hue.
 import type { ReactNode } from 'react'
 
 export type Shape = 'circle' | 'square' | 'triangle'
@@ -37,7 +36,6 @@ export function Legend({ items }: { items: { key: string; label: string; swatch:
   )
 }
 
-/** Tooltip body shared by every chart; all values render as React text. */
 export function TooltipBox({ title, rows }: { title: ReactNode; rows: { label: string; value: ReactNode }[] }) {
   return (
     <div className="max-w-72 rounded-md border border-white/25 bg-black px-3 py-2 text-xs shadow-none">

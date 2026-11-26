@@ -12,7 +12,6 @@ type Props = {
   onOpenChange: (open: boolean) => void
   initial: RunForm
   initialStep?: 'edit' | 'review'
-  /** Absent without a live runner: the review step then explains why Start is unavailable. */
   onStart?: (body: RunRequest, form: RunForm) => Promise<void>
 }
 
@@ -219,7 +218,6 @@ function Review({ body }: { body: RunRequest }) {
 }
 
 export function NewRunSheet({ open, onOpenChange, initial, initialStep = 'edit', onStart }: Props) {
-  // The parent remounts this sheet (via key) for each opening, so state starts from props.
   const [form, setForm] = useState(initial)
   const [errors, setErrors] = useState<RunFormErrors>({})
   const [review, setReview] = useState<RunRequest | null>(() => {

@@ -137,7 +137,6 @@ const httpsError = (value: string, label: string) => {
   }
 }
 
-/** Mirrors the server's rules; on success returns the exact POST /runs body. */
 export function validateRunForm(form: RunForm): { ok: true; body: RunRequest } | { ok: false; errors: RunFormErrors } {
   const errors: RunFormErrors = {}
   const url = form.url.trim()

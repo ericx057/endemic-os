@@ -7,18 +7,14 @@ use std::{
     time::Instant,
 };
 
-/// How a stage's tool traffic is bucketed and sampled.
 #[derive(Clone, Copy)]
 pub struct TrafficShape {
     pub window_ms: u64,
-    /// Windows from stage start; calls after the last one are counted as unbucketed.
     pub windows: usize,
-    /// Sessions whose dispatch timeline is kept.
     pub session_samples: u64,
 }
 
 pub(super) struct Traffic {
-    // Tokio's clock so paused-time tests can place calls in exact windows.
     started: tokio::time::Instant,
     window_ms: u64,
     session_samples: u64,
@@ -143,7 +139,6 @@ pub struct TrafficReport {
     peak_calls_per_window: u64,
     p95_calls_per_occupied_window: Option<u64>,
     pub(crate) session_samples: Vec<SessionSample>,
-    /// Tool calls per `window_ms` window from stage start, through the last busy window.
     calls_per_window: Vec<u64>,
 }
 

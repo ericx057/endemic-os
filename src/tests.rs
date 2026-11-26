@@ -28,7 +28,6 @@ const SETTINGS: [(&str, &str); 11] = [
 ];
 
 impl Settings {
-    /// Fixture settings with a short token the tests send as `Bearer api-secret`.
     pub(super) fn fixture() -> Self {
         Self {
             token: "api-secret".into(),
@@ -36,7 +35,6 @@ impl Settings {
         }
     }
 
-    /// Fixture settings for a short ramp from `start` to `max` agents.
     fn ramp(start: usize, max: usize) -> Self {
         Self {
             start_agents: start,
@@ -48,7 +46,6 @@ impl Settings {
 }
 
 impl App {
-    /// An app that skips planning: each run gets an empty plan and runs `session`.
     pub(super) fn fixture<F, Fut>(settings: Settings, session: F) -> Self
     where
         F: Fn(usize, Arc<Metrics>) -> Fut + Send + Sync + 'static,

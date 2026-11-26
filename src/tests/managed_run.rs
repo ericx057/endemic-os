@@ -1,6 +1,3 @@
-//! End to end through the API: POST /runs plans against a loopback MCP server and a scripted
-//! vLLM, then ramps agents that call the target. No network beyond loopback.
-
 use super::*;
 use crate::{
     open_weight::Engine,
@@ -43,7 +40,6 @@ async fn managed_run_plans_ramps_and_reports_without_the_token() {
     assert_eq!(stages[1]["hotspots"][0]["tool"], "search");
     assert!(!json.to_string().contains(FIXTURE_TOKEN));
 
-    // Both tasks were pursued in the two-agent stage, and the target saw real tool calls.
     let objectives: Vec<String> = requests
         .lock()
         .unwrap()

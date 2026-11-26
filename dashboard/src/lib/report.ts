@@ -1,6 +1,3 @@
-// Types and pure transforms for the runner's GET /runs/{id} JSON (src/api.rs,
-// src/runner/metrics.rs, hotspots.rs, traffic.rs). Older reports may lack
-// hotspots, calls_per_window and trace_id.
 import type { Fault, FaultEffect, Pacing } from './runRequest'
 import { bool, describeErrors, fail, isObject, list, num, object, optNum, requiredList, str } from './json'
 
@@ -72,7 +69,6 @@ export type PlanPersona = {
   max_tool_calls: number
   tasks: { start: number; end: number }
 }
-/** What Endemic decided for the run; absent in reports from older runners. */
 export type RunPlan = {
   target_kind: 'mcp' | 'http'
   tools: string[]
@@ -89,7 +85,6 @@ export type RunReport = {
   status: RunStatus
   highest_passing_agents: number | null
   plan: RunPlan | null
-  /** Why a `failed` run stopped before any stage; null otherwise and in older reports. */
   error: string | null
   stages: StageReport[]
   explanation: Explanation | null
@@ -266,7 +261,6 @@ const plan = (value: unknown, path: string): RunPlan | null => {
   }
 }
 
-/** Validates unknown JSON as a run report; throws an Error naming the first bad field. */
 export function parseReport(value: unknown): RunReport {
   if (!isObject(value)) throw new Error('Not an Endemic run report: the file is not a JSON object.')
   return describeErrors('Not an Endemic run report', () => {

@@ -1,4 +1,3 @@
-// Field validators for untrusted JSON. Each throws an Error naming the bad path.
 
 export type Json = Record<string, unknown>
 
@@ -14,13 +13,11 @@ export const optNum = (value: unknown, path: string): number | null => (value ==
 export const bool = (value: unknown, path: string): boolean =>
   typeof value === 'boolean' ? value : fail(path, 'true or false')
 export const str = (value: unknown, path: string): string => (typeof value === 'string' ? value : fail(path, 'text'))
-/** A missing list reads as empty, so older reports without newer fields still load. */
 export const list = <T>(value: unknown, path: string, item: (entry: unknown, path: string) => T): T[] =>
   value == null ? [] : Array.isArray(value) ? value.map((entry, i) => item(entry, `${path}[${i}]`)) : fail(path, 'a list')
 export const requiredList = <T>(value: unknown, path: string, item: (entry: unknown, path: string) => T): T[] =>
   Array.isArray(value) ? list(value, path, item) : fail(path, 'a list')
 
-/** Runs a parser and prefixes any validation error with what was being read. */
 export function describeErrors<T>(what: string, parse: () => T): T {
   try {
     return parse()
