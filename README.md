@@ -6,6 +6,14 @@ Endemic load tests your staging software with traffic from real AI agents. Give 
 
 A target is an MCP server (Streamable HTTP) or an HTTP API described by an OpenAPI document. Agents run on any vLLM or OpenAI-compatible chat completions endpoint that supports tool calling.
 
+<p align="center"><strong>Used by students, engineers, and researchers at</strong></p>
+
+<p align="center">
+  <img src="docs/assets/university-of-waterloo.png" alt="University of Waterloo" width="168" height="58">
+  <img src="docs/assets/university-of-toronto.png" alt="University of Toronto" width="168" height="58">
+  <img src="docs/assets/university-of-british-columbia.png" alt="University of British Columbia" width="168" height="58">
+</p>
+
 ## Why
 
 A fixed request script checks throughput, but agents don't follow scripts. They pick their own tool sequences, retry or change course when they hit errors, call APIs directly instead of through a UI, and run many workflows at once. That produces bursts and repeated calls that human traffic never does. Endemic tests against that load with agents doing the actual work.
