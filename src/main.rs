@@ -8,6 +8,7 @@ mod plan;
 mod request;
 mod runner;
 mod target;
+mod task_mix;
 
 use std::{env, sync::Arc};
 use tokio::net::TcpListener;

@@ -1,5 +1,5 @@
 import type { RunPlan } from '@/lib/report'
-import { describePacing } from '@/lib/runRequest'
+import { describeFault, describePacing } from '@/lib/runRequest'
 
 const KIND: Record<RunPlan['target_kind'], string> = { mcp: 'MCP endpoint', http: 'HTTP API (OpenAPI)' }
 
@@ -28,6 +28,30 @@ export function PlanSummary({ plan }: { plan: RunPlan }) {
       </dd>
       <dt className="text-muted-foreground">Pacing</dt>
       <dd className="num">{describePacing(plan.pacing)}</dd>
+      {plan.faults.length > 0 && (
+        <>
+          <dt className="text-muted-foreground">Faults</dt>
+          <dd className="num">
+            {plan.faults.map((fault, i) => (
+              <p key={i}>{describeFault(fault)}</p>
+            ))}
+          </dd>
+        </>
+      )}
+      {plan.task_mix.length > 0 && (
+        <>
+          <dt className="text-muted-foreground">Task mix</dt>
+          <dd>
+            <ul className="space-y-1">
+              {plan.task_mix.map((persona) => (
+                <li key={persona.name} className="num">
+                  <span className="font-medium">{persona.name}</span>: {persona.weight}% of agents on tasks {persona.tasks.start + 1} to {persona.tasks.end}, up to {persona.max_model_turns} turns and {persona.max_tool_calls} tool calls
+                </li>
+              ))}
+            </ul>
+          </dd>
+        </>
+      )}
       <dt className="text-muted-foreground">Tasks</dt>
       <dd>
         <details>

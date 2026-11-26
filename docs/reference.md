@@ -6,7 +6,7 @@ One Rust binary holds the HTTPS API, the planner, the scheduler, the metrics, th
 
 `GET /runs/{id}` returns `status`, `highest_passing_agents`, `plan`, `error`, and `stages[]`.
 
-`plan` records what Endemic decided: `target_kind` (`mcp` or `http`), `tools`, `parallel_tools` (read-only tools dispatched concurrently), the generated `tasks`, `hold_agents` (the requested hold, or null for a ramp), `pacing`, and `agents_per_stage`, which grows as stages start. `status` is `running`, `cancelled`, `failed` (the run stopped before any stage: discovery, the address guard, or task generation; `error` says why, and `plan` keeps what was decided), `failed_stage`, `reached_ceiling`, or `completed` (a held stage passed). Each stage reports:
+`plan` records what Endemic decided: `target_kind` (`mcp` or `http`), `tools`, `parallel_tools` (read-only tools dispatched concurrently), the generated `tasks`, `hold_agents` (the requested hold, or null for a ramp), `pacing`, `faults`, `task_mix` (present only for a mixed run: each persona's `name`, `weight`, `max_model_turns`, `max_tool_calls`, and its slice of `tasks`), and `agents_per_stage`, which grows as stages start. `status` is `running`, `cancelled`, `failed` (the run stopped before any stage: discovery, the address guard, or task generation; `error` says why, and `plan` keeps what was decided), `failed_stage`, `reached_ceiling`, or `completed` (a held stage passed). Each stage reports:
 
 | Question | Report fields |
 | --- | --- |
@@ -16,8 +16,12 @@ One Rust binary holds the HTTPS API, the planner, the scheduler, the metrics, th
 | What do agents call most? | `hotspots`: tool, calls, share, target errors, p95/p99 latency. HTTP rows read as `operationId (METHOD /path/{template})` |
 | What did one session do? | `traffic.session_samples`: up to `TRAFFIC_SESSION_SAMPLES` sessions, each with its `trace_id` and `dispatches` (relative time and tool names; no arguments or results) |
 | What did inference use? | `input_tokens`, `output_tokens`, `tokens` |
+| Did the target and agents degrade gracefully under faults? | `faults` (the request's faults active this stage), `injected` (per tool: calls the runner `delayed`, failed with `errors`, or failed as `timeouts`; none reached the target), `injected_failures` (sessions an injected fault ended, counted apart from `target_errors` and outside the error budget) |
+| Why did it fail? | `failed_criterion` (the first pass rule a failing stage broke: `held`, `all_agents_active`, `sessions_completed`, `runner_p95`, `runner_p99`, or `error_budget`) |
 
 Inference throttles are reported apart from target errors, so a model limit does not become a capacity claim about your software.
+
+A `failed_stage` run also carries `explanation`: the failing stage's `agents` and `criterion`, `baseline_agents` (the last passing stage, or null), `error_rate` and `p95_ms` (the tool whose value rose most since the baseline, `from` and `to`, and `began_at_agents`, where the rise started; null when nothing rose), and `sample_trace_ids` (sampled sessions in the failing stage that called those tools). Every other run has `explanation: null`.
 
 ## Settings
 
@@ -73,13 +77,15 @@ curl -X POST "$ENDEMIC/runs" -H "Authorization: Bearer $API_BEARER_TOKEN" \
   -d '{"target":{"url":"https://staging.example.com/mcp"},"credentials":{"bearer":"'"$STAGING_TOKEN"'"},"use_case":"Shoppers search the catalog and check out."}'
 ```
 
-The body is exactly `{"target":{"url","openapi_url"?},"credentials":{"bearer"},"use_case"?,"hold_agents"?,"pacing"?}`; unknown fields are rejected.
+The body is exactly `{"target":{"url","openapi_url"?},"credentials":{"bearer"},"use_case"?,"hold_agents"?,"pacing"?,"faults"?,"task_mix"?}`; unknown fields are rejected.
 
 - `target.url` (HTTPS): an MCP endpoint, or with `target.openapi_url` (HTTPS) the base URL of an HTTP API. The MCP endpoint must support the `2025-11-25` Streamable HTTP lifecycle. The OpenAPI document must be OpenAPI 3 JSON; it is fetched with the bearer only when it shares the target's origin.
 - `credentials.bearer`: 1 to 4096 visible ASCII characters. It is held in memory for the run only, sent as `Authorization: Bearer` to the target, and never returned, logged, or written to a report.
 - `use_case` (optional, 1 to 4096 bytes): steers the generated tasks.
 - `hold_agents` (optional, 1 to `RUN_MAX_AGENTS`): run one stage at exactly this many agents to check the target holds them. Omit it to find the breaking point.
 - `pacing` (optional): `start_spread_ms` (each agent starts at a random offset below it), `think_min_ms` and `think_max_ms` (random pause between an agent's sessions), and `sync_sessions` (agents begin every session together, in waves). Each field defaults to 0 or false, which starts all agents together with no pauses. Spread and pauses must stay below `RUN_HOLD_SECONDS`.
+- `faults` (optional): a list of `{"tool","first_stage","last_stage","percent","effect"}`. During stages `first_stage` to `last_stage` (1-based, inclusive), `percent` (1 to 100) of the runner's calls to `tool` get `effect`: `{"kind":"latency","delay_ms"}` (a wait before the call, below `TARGET_TIMEOUT_SECONDS`), `{"kind":"error"}`, or `{"kind":"timeout"}` (a `TARGET_TIMEOUT_SECONDS` wait, then a failure). Failed calls are never sent to the target; a batch with one is not sent at all. Which calls are hit is drawn deterministically from the run id, stage, agent, session round, and call number. `tool` must be one the target exposes, checked once discovery finishes. A session that hits an injected failure ends, as on any tool failure.
+- `task_mix` (optional, replaces `use_case`): a list of personas `{"name","weight","use_case"?,"max_model_turns"?,"max_tool_calls"?}`. Names are 1 to 64 bytes and unique, weights are at least 1 and sum to 100. Each persona gets its own `PLAN_TASK_COUNT` generated tasks, steered by its `use_case`, and every 100 consecutive agents split exactly by weight. `max_model_turns` and `max_tool_calls` default to, and may not exceed, `AGENT_MAX_MODEL_TURNS` and `AGENT_MAX_TOOL_CALLS`.
 
 At run start Endemic discovers every tool (MCP `tools/list`, or every OpenAPI operation by `operationId`), makes one inference call that turns the tools and use case into `PLAN_TASK_COUNT` tasks, then runs one stage at `hold_agents`, or without it ramps agents from `RUN_START_AGENTS`, doubling after every passing stage up to `RUN_MAX_AGENTS` and stopping at the first failing stage. A passing ceiling is a lower bound on capacity. Read-only tools (HTTP GET and HEAD, MCP `readOnlyHint: true`) are dispatched in parallel; everything else runs in model order. One run is active per process.
 

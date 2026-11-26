@@ -1,7 +1,10 @@
 //! The managed-run request (docs/dashboard-plan.md, "Managed runs"): what the user supplies,
 //! validated before anything is fetched.
 
-use crate::runner::Pacing;
+use crate::{
+    runner::{Fault, Pacing},
+    task_mix::{self, Persona, WEIGHT_TOTAL},
+};
 use reqwest::{Url, header::HeaderValue};
 use serde::Deserialize;
 use serde_json::error::Category;
@@ -20,6 +23,9 @@ struct Body {
     hold_agents: Option<usize>,
     #[serde(default)]
     pacing: Pacing,
+    #[serde(default)]
+    faults: Vec<Fault>,
+    task_mix: Option<Vec<Persona>>,
 }
 
 #[derive(Deserialize)]
@@ -65,6 +71,8 @@ pub struct RunRequest {
     pub use_case: Option<String>,
     pub hold_agents: Option<usize>,
     pub pacing: Pacing,
+    pub faults: Vec<Fault>,
+    pub task_mix: Vec<Persona>,
 }
 
 impl RunRequest {
@@ -77,7 +85,33 @@ impl RunRequest {
             body.use_case,
             body.hold_agents,
             body.pacing,
-        )
+            body.faults,
+        )?
+        .mixed(body.task_mix)
+    }
+
+    pub fn mixed(self, task_mix: Option<Vec<Persona>>) -> Result<Self, String> {
+        let Some(task_mix) = task_mix else {
+            return Ok(self);
+        };
+        if self.use_case.is_some() {
+            return Err("with task_mix, each persona sets its own use_case".into());
+        }
+        task_mix::validate(&task_mix)?;
+        Ok(Self { task_mix, ..self })
+    }
+
+    pub fn personas(&self) -> Vec<Persona> {
+        if !self.task_mix.is_empty() {
+            return self.task_mix.clone();
+        }
+        vec![Persona {
+            name: String::new(),
+            weight: WEIGHT_TOTAL as u8,
+            max_model_turns: None,
+            max_tool_calls: None,
+            use_case: self.use_case.clone(),
+        }]
     }
 
     pub fn new(
@@ -87,6 +121,7 @@ impl RunRequest {
         use_case: Option<String>,
         hold_agents: Option<usize>,
         pacing: Pacing,
+        faults: Vec<Fault>,
     ) -> Result<Self, String> {
         if !(1..=BEARER_LIMIT).contains(&bearer.0.len())
             || !bearer.0.bytes().all(|byte| byte.is_ascii_graphic())
@@ -95,13 +130,9 @@ impl RunRequest {
                 "credentials.bearer must be 1 to {BEARER_LIMIT} visible ASCII bytes"
             ));
         }
-        if use_case
-            .as_ref()
-            .is_some_and(|text| text.trim().is_empty() || text.len() > USE_CASE_LIMIT)
-        {
-            return Err(format!(
-                "use_case must be 1 to {USE_CASE_LIMIT} bytes and not blank"
-            ));
+        faults.iter().try_for_each(Fault::check)?;
+        if let Some(text) = &use_case {
+            check_use_case(text).map_err(|problem| format!("use_case {problem}"))?;
         }
         if hold_agents == Some(0) {
             return Err("hold_agents must be at least 1".into());
@@ -115,8 +146,17 @@ impl RunRequest {
             use_case,
             hold_agents,
             pacing,
+            faults,
+            task_mix: Vec::new(),
         })
     }
+}
+
+pub fn check_use_case(text: &str) -> Result<(), String> {
+    if text.trim().is_empty() || text.len() > USE_CASE_LIMIT {
+        return Err(format!("must be 1 to {USE_CASE_LIMIT} bytes and not blank"));
+    }
+    Ok(())
 }
 
 fn https_url(value: &str, field: &str) -> Result<Url, String> {
@@ -143,7 +183,7 @@ fn describe(error: serde_json::Error) -> String {
         return format!("invalid run request: {text}");
     }
     format!(
-        "invalid run request at line {} column {}: expected {{\"target\":{{\"url\",\"openapi_url\"?}},\"credentials\":{{\"bearer\"}},\"use_case\"?,\"hold_agents\"?,\"pacing\"?}} with string values, an integer hold_agents, and a pacing object",
+        "invalid run request at line {} column {}: expected {{\"target\":{{\"url\",\"openapi_url\"?}},\"credentials\":{{\"bearer\"}},\"use_case\"?,\"hold_agents\"?,\"pacing\"?,\"faults\"?,\"task_mix\"?}} with string values, an integer hold_agents, a pacing object, a faults array, and a task_mix array of personas",
         error.line(),
         error.column()
     )

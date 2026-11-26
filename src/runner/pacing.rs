@@ -34,11 +34,15 @@ fn random_ms(agent: usize, round: u64, low: u64, high: u64) -> Duration {
     if high <= low {
         return Duration::from_millis(low);
     }
+    Duration::from_millis(low + mix(agent, round) % (high - low + 1))
+}
+
+pub(crate) fn mix(agent: usize, round: u64) -> u64 {
     let mut z = (agent as u64 + 1).wrapping_mul(0x9E37_79B9_7F4A_7C15)
         ^ round.wrapping_mul(0xD1B5_4A32_D192_ED03);
     z = (z ^ (z >> 30)).wrapping_mul(0xBF58_476D_1CE4_E5B9);
     z = (z ^ (z >> 27)).wrapping_mul(0x94D0_49BB_1331_11EB);
-    Duration::from_millis(low + (z ^ (z >> 31)) % (high - low + 1))
+    z ^ (z >> 31)
 }
 
 #[cfg(test)]

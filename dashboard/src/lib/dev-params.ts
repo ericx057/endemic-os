@@ -24,6 +24,8 @@ export const DEV_REVIEW_FORM: RunForm = {
   thinkMinMs: '2000',
   thinkMaxMs: '8000',
   syncSessions: false,
+  faults: [{ tool: 'search', firstStage: '2', lastStage: '3', percent: '25', kind: 'latency', delayMs: '400' }],
+  personas: [],
 }
 
 const layout = params.get('layout')

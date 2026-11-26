@@ -14,6 +14,14 @@ const BUDGETS: [(&str, &str); 3] = [
     ("AGENT_RESULT_LIMIT_BYTES", "65536"),
 ];
 
+fn faults() -> SessionFaults {
+    SessionFaults::new(0, 0, std::time::Duration::ZERO)
+}
+
+fn budget() -> Budget {
+    Budget { turns: 8, calls: 8 }
+}
+
 fn settings() -> Vec<(&'static str, &'static str)> {
     [client::tests::SETTINGS.as_slice(), &BUDGETS].concat()
 }
@@ -89,7 +97,9 @@ async fn turns_append_verbatim_calls_and_their_whole_results() {
                 &target,
                 &lookup_tools(),
                 "Find and verify the result marker.",
-                &metrics
+                budget(),
+                &metrics,
+                faults(),
             )
             .await,
         Ok(())
@@ -120,7 +130,14 @@ async fn a_result_over_the_limit_fails_the_session_as_a_target_error() {
     };
     assert_eq!(
         engine
-            .session(&target, &lookup_tools(), "Find facts.", &Metrics::default())
+            .session(
+                &target,
+                &lookup_tools(),
+                "Find facts.",
+                budget(),
+                &Metrics::default(),
+                faults()
+            )
             .await,
         Err(Failure::Target)
     );
@@ -142,7 +159,14 @@ async fn rejects_entire_turn_with_unknown_tool_and_closes_target() {
     };
     assert_eq!(
         engine
-            .session(&target, &lookup_tools(), "Find facts.", &metrics)
+            .session(
+                &target,
+                &lookup_tools(),
+                "Find facts.",
+                budget(),
+                &metrics,
+                faults()
+            )
             .await,
         Err(Failure::Inference)
     );
@@ -189,7 +213,14 @@ async fn model_batch_keeps_response_order_for_operator_approved_tools() {
     let metrics = Metrics::default();
     assert_eq!(
         engine
-            .session(&target, &lookup_tools(), "Read both facts.", &metrics)
+            .session(
+                &target,
+                &lookup_tools(),
+                "Read both facts.",
+                budget(),
+                &metrics,
+                faults()
+            )
             .await,
         Ok(())
     );
@@ -223,7 +254,14 @@ async fn drives_an_http_api_target_unchanged() {
     let metrics = Metrics::new(crate::runner::fixture::TRAFFIC, &labels);
     assert_eq!(
         engine
-            .session(&target, &tools, "fetch item 7", &metrics)
+            .session(
+                &target,
+                &tools,
+                "fetch item 7",
+                budget(),
+                &metrics,
+                faults()
+            )
             .await,
         Ok(())
     );

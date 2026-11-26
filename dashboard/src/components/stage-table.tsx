@@ -1,9 +1,10 @@
 import { Badge } from '@/components/ui/badge'
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table'
 import { stageTableRows, type StageReport } from '@/lib/report'
+import { describeFault } from '@/lib/runRequest'
 import { ms, pct } from './charts/format'
 
-const COLUMNS = ['Agents', 'Result', 'Started', 'Completed', 'Error share', 'Throttled', 'Target p95', 'Inference p95', 'Runner p95 / p99', 'Tool calls', 'Peak burst']
+const COLUMNS = ['Agents', 'Result', 'Started', 'Completed', 'Error share', 'Throttled', 'Target p95', 'Inference p95', 'Runner p95 / p99', 'Tool calls', 'Peak burst', 'Injected calls', 'Ended by injection', 'Faults active']
 
 export function StageTable({ stages }: { stages: StageReport[] }) {
   return (
@@ -36,6 +37,9 @@ export function StageTable({ stages }: { stages: StageReport[] }) {
               </TableCell>
               <TableCell className="num text-right">{row.toolCalls.toLocaleString()}</TableCell>
               <TableCell className="num text-right">{row.peakBurst.toLocaleString()}</TableCell>
+              <TableCell className="num text-right">{row.injectedCalls.toLocaleString()}</TableCell>
+              <TableCell className="num text-right">{pct(row.injectedFailures)}</TableCell>
+              <TableCell className="text-right">{row.faults.length ? row.faults.map((fault, j) => <p key={j}>{describeFault(fault)}</p>) : 'None'}</TableCell>
             </TableRow>
           ))}
         </TableBody>

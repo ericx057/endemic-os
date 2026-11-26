@@ -1,11 +1,22 @@
 // Types and pure transforms for the runner's GET /runs/{id} JSON (src/api.rs,
 // src/runner/metrics.rs, hotspots.rs, traffic.rs). Older reports may lack
 // hotspots, calls_per_window and trace_id.
-import type { Pacing } from './runRequest'
+import type { Fault, FaultEffect, Pacing } from './runRequest'
 import { bool, describeErrors, fail, isObject, list, num, object, optNum, requiredList, str } from './json'
 
 export const RUN_STATUSES = ['running', 'cancelled', 'failed', 'failed_stage', 'reached_ceiling', 'completed'] as const
 export type RunStatus = (typeof RUN_STATUSES)[number]
+export const CRITERIA = ['held', 'all_agents_active', 'sessions_completed', 'runner_p95', 'runner_p99', 'error_budget'] as const
+export type Criterion = (typeof CRITERIA)[number]
+export type Rise = { tool: string; from: number | null; to: number; began_at_agents: number }
+export type Explanation = {
+  agents: number
+  criterion: Criterion
+  baseline_agents: number | null
+  error_rate: Rise | null
+  p95_ms: Rise | null
+  sample_trace_ids: string[]
+}
 
 export type Latencies = { samples: number; p95_ms: number | null; p99_ms: number | null }
 export type Hotspot = {
@@ -27,6 +38,7 @@ export type TrafficReport = {
   session_samples: SessionSample[]
   calls_per_window: number[]
 }
+export type Injected = { delayed: number; errors: number; timeouts: number }
 export type StageReport = {
   agents: number
   held: boolean
@@ -42,12 +54,23 @@ export type StageReport = {
   output_tokens: number
   traffic: TrafficReport
   hotspots: Hotspot[]
+  injected_failures: number
+  injected: Record<string, Injected>
+  faults: Fault[]
   runner: Latencies
   target: Latencies
   inference: Latencies
   hold_seconds: number
   passed: boolean
+  failed_criterion: Criterion | null
   interrupted: number
+}
+export type PlanPersona = {
+  name: string
+  weight: number
+  max_model_turns: number
+  max_tool_calls: number
+  tasks: { start: number; end: number }
 }
 /** What Endemic decided for the run; absent in reports from older runners. */
 export type RunPlan = {
@@ -57,6 +80,8 @@ export type RunPlan = {
   tasks: string[]
   hold_agents: number | null
   pacing: Pacing | null
+  faults: Fault[]
+  task_mix: PlanPersona[]
   agents_per_stage: number[]
 }
 export type RunReport = {
@@ -67,6 +92,7 @@ export type RunReport = {
   /** Why a `failed` run stopped before any stage; null otherwise and in older reports. */
   error: string | null
   stages: StageReport[]
+  explanation: Explanation | null
 }
 
 const latencies = (value: unknown, path: string): Latencies => {
@@ -111,6 +137,64 @@ const traffic = (value: unknown, path: string): TrafficReport => {
   }
 }
 
+const effect = (value: unknown, path: string): FaultEffect => {
+  const o = object(value, path)
+  if (o.kind === 'latency') return { kind: 'latency', delay_ms: num(o.delay_ms, `${path}.delay_ms`) }
+  if (o.kind === 'error' || o.kind === 'timeout') return { kind: o.kind }
+  return fail(`${path}.kind`, 'latency, error, or timeout')
+}
+
+const fault = (value: unknown, path: string): Fault => {
+  const o = object(value, path)
+  return {
+    tool: str(o.tool, `${path}.tool`),
+    first_stage: num(o.first_stage, `${path}.first_stage`),
+    last_stage: num(o.last_stage, `${path}.last_stage`),
+    percent: num(o.percent, `${path}.percent`),
+    effect: effect(o.effect, `${path}.effect`),
+  }
+}
+
+const injected = (value: unknown, path: string): Record<string, Injected> => {
+  const o = value == null ? {} : object(value, path)
+  return Object.fromEntries(
+    Object.entries(o).map(([tool, counts]) => {
+      const c = object(counts, `${path}.${tool}`)
+      const n = (key: string) => num(c[key], `${path}.${tool}.${key}`)
+      return [tool, { delayed: n('delayed'), errors: n('errors'), timeouts: n('timeouts') }]
+    }),
+  )
+}
+
+const criterion = (value: unknown, path: string): Criterion => {
+  const name = str(value, path)
+  return CRITERIA.includes(name as Criterion) ? (name as Criterion) : fail(path, CRITERIA.join(', '))
+}
+
+const rise = (value: unknown, path: string): Rise | null => {
+  if (value == null) return null
+  const o = object(value, path)
+  return {
+    tool: str(o.tool, `${path}.tool`),
+    from: optNum(o.from, `${path}.from`),
+    to: num(o.to, `${path}.to`),
+    began_at_agents: num(o.began_at_agents, `${path}.began_at_agents`),
+  }
+}
+
+const explanation = (value: unknown, path: string): Explanation | null => {
+  if (value == null) return null
+  const o = object(value, path)
+  return {
+    agents: num(o.agents, `${path}.agents`),
+    criterion: criterion(o.criterion, `${path}.criterion`),
+    baseline_agents: optNum(o.baseline_agents, `${path}.baseline_agents`),
+    error_rate: rise(o.error_rate, `${path}.error_rate`),
+    p95_ms: rise(o.p95_ms, `${path}.p95_ms`),
+    sample_trace_ids: requiredList(o.sample_trace_ids, `${path}.sample_trace_ids`, str),
+  }
+}
+
 const stageReport = (value: unknown, path: string): StageReport => {
   const o = object(value, path)
   const n = (key: string) => num(o[key], `${path}.${key}`)
@@ -129,11 +213,15 @@ const stageReport = (value: unknown, path: string): StageReport => {
     output_tokens: n('output_tokens'),
     traffic: traffic(o.traffic, `${path}.traffic`),
     hotspots: list(o.hotspots, `${path}.hotspots`, hotspot),
+    injected_failures: optNum(o.injected_failures, `${path}.injected_failures`) ?? 0,
+    injected: injected(o.injected, `${path}.injected`),
+    faults: list(o.faults, `${path}.faults`, fault),
     runner: latencies(o.runner, `${path}.runner`),
     target: latencies(o.target, `${path}.target`),
     inference: latencies(o.inference, `${path}.inference`),
     hold_seconds: n('hold_seconds'),
     passed: bool(o.passed, `${path}.passed`),
+    failed_criterion: o.failed_criterion == null ? null : criterion(o.failed_criterion, `${path}.failed_criterion`),
     interrupted: optNum(o.interrupted, `${path}.interrupted`) ?? 0,
   }
 }
@@ -149,6 +237,18 @@ const pacing = (value: unknown, path: string): Pacing | null => {
   }
 }
 
+const planPersona = (value: unknown, path: string): PlanPersona => {
+  const o = object(value, path)
+  const tasks = object(o.tasks, `${path}.tasks`)
+  return {
+    name: str(o.name, `${path}.name`),
+    weight: num(o.weight, `${path}.weight`),
+    max_model_turns: num(o.max_model_turns, `${path}.max_model_turns`),
+    max_tool_calls: num(o.max_tool_calls, `${path}.max_tool_calls`),
+    tasks: { start: num(tasks.start, `${path}.tasks.start`), end: num(tasks.end, `${path}.tasks.end`) },
+  }
+}
+
 const plan = (value: unknown, path: string): RunPlan | null => {
   if (value == null) return null
   const o = object(value, path)
@@ -160,6 +260,8 @@ const plan = (value: unknown, path: string): RunPlan | null => {
     tasks: requiredList(o.tasks, `${path}.tasks`, str),
     hold_agents: optNum(o.hold_agents, `${path}.hold_agents`),
     pacing: pacing(o.pacing, `${path}.pacing`),
+    faults: list(o.faults, `${path}.faults`, fault),
+    task_mix: list(o.task_mix, `${path}.task_mix`, planPersona),
     agents_per_stage: requiredList(o.agents_per_stage, `${path}.agents_per_stage`, num),
   }
 }
@@ -177,6 +279,7 @@ export function parseReport(value: unknown): RunReport {
       plan: plan(value.plan, 'plan'),
       error: value.error == null ? null : str(value.error, 'error'),
       stages: requiredList(value.stages, 'stages', stageReport),
+      explanation: explanation(value.explanation, 'explanation'),
     }
   })
 }
@@ -246,5 +349,8 @@ export function stageTableRows(stages: StageReport[]) {
     runnerP99: s.runner.p99_ms,
     toolCalls: s.traffic.tool_calls,
     peakBurst: s.traffic.peak_calls_per_window,
+    faults: s.faults,
+    injectedCalls: Object.values(s.injected).reduce((sum, c) => sum + c.delayed + c.errors + c.timeouts, 0),
+    injectedFailures: percent(s.injected_failures, s.started),
   }))
 }

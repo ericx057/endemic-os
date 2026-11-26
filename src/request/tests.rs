@@ -31,6 +31,17 @@ fn accepts_the_managed_run_body() {
         minimal.openapi_url.is_none()
             && minimal.use_case.is_none()
             && minimal.hold_agents.is_none()
+            && minimal.faults.is_empty()
+    );
+
+    let faulted = parse(
+        r#"{"target":{"url":"https://s.example.com/mcp"},"credentials":{"bearer":"t"},
+            "faults":[{"tool":"search","first_stage":2,"last_stage":3,"percent":25,"effect":{"kind":"latency","delay_ms":400}}]}"#,
+    )
+    .unwrap();
+    assert_eq!(
+        serde_json::to_value(&faulted.faults).unwrap(),
+        serde_json::json!([{"tool":"search","first_stage":2,"last_stage":3,"percent":25,"effect":{"kind":"latency","delay_ms":400}}])
     );
 }
 
@@ -95,6 +106,38 @@ fn rejects_invalid_requests_with_a_clear_message() {
             "hold_agents must be at least 1",
         ),
         (
+            body(
+                ok_target,
+                ok_bearer,
+                r#","faults":[{"tool":"search","first_stage":1,"last_stage":1,"percent":0,"effect":{"kind":"error"}}]"#,
+            ),
+            "each fault needs percent from 1 to 100",
+        ),
+        (
+            body(
+                ok_target,
+                ok_bearer,
+                r#","faults":[{"tool":"search","first_stage":1,"last_stage":1,"percent":5,"effect":{"kind":"latency"}}]"#,
+            ),
+            "invalid run request: missing field `delay_ms`",
+        ),
+        (
+            body(
+                ok_target,
+                ok_bearer,
+                r#","use_case":"Shop.","task_mix":[{"name":"a","weight":100}]"#,
+            ),
+            "with task_mix, each persona sets its own use_case",
+        ),
+        (
+            body(
+                ok_target,
+                ok_bearer,
+                r#","task_mix":[{"name":"a","weight":60}]"#,
+            ),
+            "task_mix weights must sum to 100, not 60",
+        ),
+        (
             body(ok_target, ok_bearer, r#","mode":"capacity""#),
             "invalid run request: unknown field `mode`",
         ),
@@ -145,6 +188,8 @@ impl RunRequest {
             use_case: use_case.map(str::to_owned),
             hold_agents: None,
             pacing: Default::default(),
+            faults: Vec::new(),
+            task_mix: Vec::new(),
         }
     }
 }

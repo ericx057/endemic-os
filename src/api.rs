@@ -2,7 +2,9 @@ use crate::{
     config::{self, Env},
     plan::{Failed, Plan, Prepared},
     request::RunRequest,
-    runner::{Metrics, PassCriteria, StageResult, TrafficShape, run_stage},
+    runner::{
+        Criterion, Fault, Metrics, PassCriteria, StageFaults, StageResult, TrafficShape, run_stage,
+    },
 };
 use anyhow::Context;
 use axum::{
@@ -139,6 +141,7 @@ struct RunReport {
     plan: Plan,
     error: Option<String>,
     stages: Vec<Arc<StageReport>>,
+    explanation: Option<explain::Explanation>,
 }
 
 impl RunReport {
@@ -158,8 +161,10 @@ impl RunReport {
 struct StageReport {
     #[serde(flatten)]
     result: StageResult,
+    faults: Vec<Fault>,
     hold_seconds: u64,
     passed: bool,
+    failed_criterion: Option<Criterion>,
     interrupted: u64,
 }
 
@@ -236,6 +241,7 @@ async fn start_run(app: App, request: RunRequest) -> Result<RunReport, (StatusCo
         plan: Plan::new(&request),
         error: None,
         stages: Vec::new(),
+        explanation: None,
     };
     let cancel = CancellationToken::new();
     *run = Some(Run {
@@ -298,12 +304,13 @@ async fn cancel_run(app: &App, id: u64) -> Result<(), StatusCode> {
 
 async fn execute(app: App, request: RunRequest, cancel: CancellationToken) {
     let (hold_agents, pacing) = (request.hold_agents, request.pacing);
+    let faults = request.faults.clone();
     let prepared = tokio::select! {
         biased;
         _ = cancel.cancelled() => None,
         prepared = (app.prepare)(request) => Some(prepared),
     };
-    let (labels, sessions) = {
+    let (id, labels, sessions) = {
         let mut run = app.run.lock().await;
         let Some(run) = run.as_mut() else { return };
         match prepared {
@@ -323,13 +330,14 @@ async fn execute(app: App, request: RunRequest, cancel: CancellationToken) {
                 sessions,
             })) => {
                 run.report.plan = plan;
-                (labels, sessions)
+                (run.report.id, labels, sessions)
             }
         }
     };
     let settings = &app.settings;
     let mut agents = hold_agents.unwrap_or(settings.start_agents);
-    loop {
+    for stage in 1.. {
+        let stage_faults = StageFaults::new(id, stage, &faults);
         if let Some(run) = app.run.lock().await.as_mut() {
             run.report.plan.agents_per_stage.push(agents);
         }
@@ -340,11 +348,12 @@ async fn execute(app: App, request: RunRequest, cancel: CancellationToken) {
             settings.drain,
             pacing,
             cancel.clone(),
-            Arc::new(Metrics::new(settings.traffic, &labels)),
+            Arc::new(Metrics::new(settings.traffic, &labels).with_faults(stage_faults.clone())),
             move |agent, metrics| sessions(agent, metrics),
         )
         .await;
-        let passed = result.passes(&settings.criteria);
+        let failed_criterion = result.failed_criterion(&settings.criteria);
+        let passed = failed_criterion.is_none();
         let held = result.held;
         let mut run = app.run.lock().await;
         let Some(run) = run.as_mut() else { return };
@@ -352,7 +361,9 @@ async fn execute(app: App, request: RunRequest, cancel: CancellationToken) {
             hold_seconds: settings.hold.as_secs(),
             interrupted: result.interrupted(),
             result,
+            faults: stage_faults.faults().to_vec(),
             passed,
+            failed_criterion,
         }));
         if passed {
             run.report.highest_passing_agents = Some(agents);
@@ -368,12 +379,18 @@ async fn execute(app: App, request: RunRequest, cancel: CancellationToken) {
         } else {
             RunStatus::Running
         };
+        if run.report.status == RunStatus::FailedStage {
+            run.report.explanation = explain::explain(&run.report.stages);
+        }
         if run.report.status != RunStatus::Running {
             return;
         }
         agents = (agents * 2).min(settings.max_agents);
     }
 }
+
+#[path = "explain.rs"]
+mod explain;
 
 #[cfg(test)]
 #[path = "tests.rs"]

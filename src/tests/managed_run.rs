@@ -33,7 +33,7 @@ async fn managed_run_plans_ramps_and_reports_without_the_token() {
     assert_eq!(
         json["plan"],
         serde_json::json!({"target_kind":"mcp","tools":["search","refund"],
-            "parallel_tools":["search"],"tasks":TASKS,"hold_agents":null,"pacing":{"start_spread_ms":0,"think_min_ms":0,"think_max_ms":0,"sync_sessions":false},"agents_per_stage":[1,2]})
+            "parallel_tools":["search"],"tasks":TASKS,"hold_agents":null,"pacing":{"start_spread_ms":0,"think_min_ms":0,"think_max_ms":0,"sync_sessions":false},"faults":[],"agents_per_stage":[1,2]})
     );
     assert_eq!(json["highest_passing_agents"], 2);
     let stages = json["stages"].as_array().unwrap();

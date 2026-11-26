@@ -187,10 +187,12 @@ async fn start_run_advertises_the_managed_contract_and_validates_like_post_runs(
         properties,
         [
             "bearer",
+            "faults",
             "hold_agents",
             "openapi_url",
             "pacing",
             "target_url",
+            "task_mix",
             "use_case"
         ]
     );
