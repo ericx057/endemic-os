@@ -1,7 +1,8 @@
 use super::{App, cancel_run, get_run, start_run};
 use crate::{
     request::{Bearer, RunRequest},
-    runner::Pacing,
+    runner::{Fault, Pacing},
+    task_mix::Persona,
 };
 use axum::{
     Json,
@@ -147,6 +148,24 @@ fn tools() -> Value {
             "sync_sessions": {"type":"boolean","description":"Agents begin every session together, in waves."}
         }},
         "hold_agents": {"type":"integer","minimum":1,"description":"Optional: run one stage at exactly this many agents to check the target holds them. Omit to find the breaking point."},
+        "faults": {"type":"array","description":"Optional: faults the runner injects into its own calls to a tool during stages first_stage to last_stage (1-based). Injected failures never reach the target and are reported apart from target errors.","items":{"type":"object","additionalProperties":false,"required":["tool","first_stage","last_stage","percent","effect"],"properties":{
+            "tool": text("A tool the target exposes."),
+            "first_stage": {"type":"integer","minimum":1},
+            "last_stage": {"type":"integer","minimum":1},
+            "percent": {"type":"integer","minimum":1,"maximum":100,"description":"Share of the tool's calls affected."},
+            "effect": {"oneOf":[
+                {"type":"object","additionalProperties":false,"required":["kind","delay_ms"],"properties":{"kind":{"const":"latency"},"delay_ms":{"type":"integer","minimum":1,"description":"Added before the call; below the target timeout."}}},
+                {"type":"object","additionalProperties":false,"required":["kind"],"properties":{"kind":{"const":"error"}}},
+                {"type":"object","additionalProperties":false,"required":["kind"],"properties":{"kind":{"const":"timeout"}}}
+            ]}
+        }}},
+        "task_mix": {"type":"array","minItems":1,"description":"Optional, replaces use_case: personas whose weights sum to 100. Each persona generates its own tasks and agents are split between personas by weight.","items":{"type":"object","additionalProperties":false,"required":["name","weight"],"properties":{
+            "name": text("1 to 64 bytes, unique within the mix."),
+            "weight": {"type":"integer","minimum":1,"maximum":100,"description":"Share of agents, out of 100."},
+            "use_case": text("Optional: what this persona's users do."),
+            "max_model_turns": {"type":"integer","minimum":1,"description":"Optional: at most AGENT_MAX_MODEL_TURNS."},
+            "max_tool_calls": {"type":"integer","minimum":1,"description":"Optional: at most AGENT_MAX_TOOL_CALLS."}
+        }}},
     });
     let id = json!({"id":{"type":"integer","minimum":1}});
     let tool = |name, description, properties, required, read_only| {
@@ -184,6 +203,9 @@ struct StartRun {
     hold_agents: Option<usize>,
     #[serde(default)]
     pacing: Pacing,
+    #[serde(default)]
+    faults: Vec<Fault>,
+    task_mix: Option<Vec<Persona>>,
 }
 
 fn failed((status, error): (StatusCode, String)) -> CallError {
@@ -216,7 +238,9 @@ async fn call(app: App, params: &Value) -> Result<Value, CallError> {
                 args.use_case,
                 args.hold_agents,
                 args.pacing,
+                args.faults,
             )
+            .and_then(|request| request.mixed(args.task_mix))
             .map_err(|error| CallError::Run(format!("Run request rejected: {error}")))?;
             start_run(app, request)
                 .await

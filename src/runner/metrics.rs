@@ -1,9 +1,11 @@
 use super::{
+    faults::{Effect, Injected, Injector, StageFaults},
     hotspots::{Hotspot, Hotspots},
     traffic::{ToolTrace, Traffic, TrafficReport, TrafficShape},
 };
 use serde::Serialize;
 use std::{
+    collections::BTreeMap,
     sync::atomic::{AtomicU64, Ordering::Relaxed},
     time::Duration,
 };
@@ -65,6 +67,7 @@ pub enum Failure {
     Inference,
     InferenceThrottled,
     Runner,
+    Injected,
 }
 
 pub struct Metrics {
@@ -77,12 +80,14 @@ pub struct Metrics {
     discarded_tokens: AtomicU64,
     traffic: Traffic,
     hotspots: Hotspots,
+    injector: Injector,
     started: AtomicU64,
     success: AtomicU64,
     target_errors: AtomicU64,
     inference_errors: AtomicU64,
     inference_throttles: AtomicU64,
     runner_errors: AtomicU64,
+    injected_failures: AtomicU64,
     active: AtomicU64,
     peak: AtomicU64,
 }
@@ -107,15 +112,28 @@ impl Metrics {
             discarded_tokens: AtomicU64::new(0),
             traffic: Traffic::new(traffic),
             hotspots: Hotspots::new(labels),
+            injector: Injector::new(StageFaults::default()),
             started: AtomicU64::new(0),
             success: AtomicU64::new(0),
             target_errors: AtomicU64::new(0),
             inference_errors: AtomicU64::new(0),
             inference_throttles: AtomicU64::new(0),
             runner_errors: AtomicU64::new(0),
+            injected_failures: AtomicU64::new(0),
             active: AtomicU64::new(0),
             peak: AtomicU64::new(0),
         }
+    }
+
+    pub fn with_faults(self, faults: StageFaults) -> Self {
+        Self {
+            injector: Injector::new(faults),
+            ..self
+        }
+    }
+
+    pub(crate) fn inject(&self, tool: &str, call: u64) -> Option<Effect> {
+        self.injector.draw(tool, call)
     }
 
     pub fn overhead(&self, elapsed: Duration) {
@@ -164,6 +182,7 @@ impl Metrics {
             Err(Failure::Inference) => &self.inference_errors,
             Err(Failure::InferenceThrottled) => &self.inference_throttles,
             Err(Failure::Runner) => &self.runner_errors,
+            Err(Failure::Injected) => &self.injected_failures,
         }
         .fetch_add(1, Relaxed);
     }
@@ -178,6 +197,7 @@ impl Metrics {
             started: self.started.load(Relaxed),
             completed: self.success.load(Relaxed),
             runner_errors: self.runner_errors.load(Relaxed),
+            injected_failures: self.injected_failures.load(Relaxed),
             target_errors: self.target_errors.load(Relaxed),
             inference_errors: self.inference_errors.load(Relaxed),
             inference_throttles: self.inference_throttles.load(Relaxed),
@@ -190,6 +210,7 @@ impl Metrics {
             },
             traffic: self.traffic.report(),
             hotspots: self.hotspots.report(),
+            injected: self.injector.counts(),
             runner: self.overhead.summary(),
             target: self.target.summary(),
             inference: self.inference.summary(),
@@ -220,6 +241,7 @@ pub struct StageResult {
     pub started: u64,
     pub completed: u64,
     pub runner_errors: u64,
+    pub injected_failures: u64,
     pub target_errors: u64,
     pub inference_errors: u64,
     pub inference_throttles: u64,
@@ -230,6 +252,7 @@ pub struct StageResult {
     pub traffic: TrafficReport,
     /// Tools agents called, most visited first.
     pub hotspots: Vec<Hotspot>,
+    pub injected: BTreeMap<String, Injected>,
     pub runner: Latencies,
     pub target: Latencies,
     pub inference: Latencies,
@@ -247,34 +270,103 @@ pub struct PassCriteria {
 
 impl StageResult {
     pub fn interrupted(&self) -> u64 {
-        self.started.saturating_sub(self.completed + self.errors())
+        self.started
+            .saturating_sub(self.completed + self.errors() + self.injected_failures)
     }
 
     fn errors(&self) -> u64 {
         self.runner_errors + self.target_errors + self.inference_errors + self.inference_throttles
     }
 
+    #[cfg(test)]
     pub fn passes(&self, criteria: &PassCriteria) -> bool {
-        let budget = criteria.error_budget_percent;
-        self.held
-            && self.peak_active == self.agents as u64
-            && self.completed > 0
-            && self
-                .runner
-                .p95_ms
-                .is_some_and(|value| value <= criteria.runner_p95_ms)
-            && self
-                .runner
-                .p99_ms
-                .is_some_and(|value| value <= criteria.runner_p99_ms)
-            && (self.errors() + self.interrupted()) * (100 - budget) < self.completed * budget
+        self.failed_criterion(criteria).is_none()
     }
+
+    pub fn failed_criterion(&self, criteria: &PassCriteria) -> Option<Criterion> {
+        let budget = criteria.error_budget_percent;
+        let within = |value: Option<u64>, limit| value.is_some_and(|value| value <= limit);
+        [
+            (Criterion::Held, self.held),
+            (
+                Criterion::AllAgentsActive,
+                self.peak_active == self.agents as u64,
+            ),
+            (Criterion::SessionsCompleted, self.completed > 0),
+            (
+                Criterion::RunnerP95,
+                within(self.runner.p95_ms, criteria.runner_p95_ms),
+            ),
+            (
+                Criterion::RunnerP99,
+                within(self.runner.p99_ms, criteria.runner_p99_ms),
+            ),
+            (
+                Criterion::ErrorBudget,
+                (self.errors() + self.interrupted()) * (100 - budget) < self.completed * budget,
+            ),
+        ]
+        .into_iter()
+        .find_map(|(criterion, met)| (!met).then_some(criterion))
+    }
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Serialize)]
+#[serde(rename_all = "snake_case")]
+pub enum Criterion {
+    Held,
+    AllAgentsActive,
+    SessionsCompleted,
+    RunnerP95,
+    RunnerP99,
+    ErrorBudget,
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
     use crate::runner::fixture::CRITERIA;
+
+    #[test]
+    fn the_first_unmet_criterion_is_named() {
+        let metrics = Metrics::default();
+        assert_eq!(
+            metrics.snapshot(1, false).failed_criterion(&CRITERIA),
+            Some(Criterion::Held)
+        );
+        assert_eq!(
+            metrics.snapshot(1, true).failed_criterion(&CRITERIA),
+            Some(Criterion::AllAgentsActive)
+        );
+        let _active = metrics.agent_started();
+        assert_eq!(
+            metrics.snapshot(1, true).failed_criterion(&CRITERIA),
+            Some(Criterion::SessionsCompleted)
+        );
+        metrics.finished(Ok(()));
+        assert_eq!(
+            metrics.snapshot(1, true).failed_criterion(&CRITERIA),
+            Some(Criterion::RunnerP95)
+        );
+        for index in 0..100 {
+            let ms = if index < 98 { 5 } else { 150 };
+            metrics.overhead(Duration::from_millis(ms));
+        }
+        assert_eq!(
+            metrics.snapshot(1, true).failed_criterion(&CRITERIA),
+            Some(Criterion::RunnerP99)
+        );
+        let fast = Metrics::default();
+        let _active = fast.agent_started();
+        fast.overhead(Duration::from_millis(5));
+        fast.finished(Ok(()));
+        assert_eq!(fast.snapshot(1, true).failed_criterion(&CRITERIA), None);
+        fast.finished(Err(Failure::Target));
+        assert_eq!(
+            fast.snapshot(1, true).failed_criterion(&CRITERIA),
+            Some(Criterion::ErrorBudget)
+        );
+    }
 
     #[test]
     fn capacity_checks_both_latency_percentiles_and_strict_error_budget() {

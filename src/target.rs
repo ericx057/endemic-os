@@ -2,7 +2,7 @@
 
 use crate::{
     http_api, mcp,
-    runner::{Failure, Metrics, ToolTrace},
+    runner::{Failure, Metrics, SessionFaults, ToolTrace},
 };
 use reqwest::header::HeaderValue;
 use serde_json::Value;
@@ -77,7 +77,11 @@ impl<'a> Session<'a> {
         &mut self,
         calls: Vec<(String, Value)>,
         metrics: &Metrics,
+        faults: &mut SessionFaults,
     ) -> Result<Vec<Value>, Failure> {
+        check_batch(&calls, |name| self.can_parallel(name))?;
+        let tools = calls.iter().map(|(name, _)| name.as_str());
+        faults.inject(metrics, tools).await?;
         match self {
             Self::Mcp(session) => session.call_group(calls, metrics).await,
             Self::Http(session) => session.call_group(calls, metrics).await,

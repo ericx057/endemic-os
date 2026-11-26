@@ -68,12 +68,12 @@ impl Hotspots {
 
 #[derive(Clone, Serialize)]
 pub struct Hotspot {
-    tool: String,
-    calls: u64,
+    pub(crate) tool: String,
+    pub(crate) calls: u64,
     /// Fraction (0..=1) of all tool calls in the stage.
     share: f64,
-    target_errors: u64,
-    p95_ms: Option<u64>,
+    pub(crate) target_errors: u64,
+    pub(crate) p95_ms: Option<u64>,
     p99_ms: Option<u64>,
 }
 

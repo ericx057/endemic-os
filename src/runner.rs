@@ -7,13 +7,15 @@ use std::{
 use tokio::{sync::Barrier, task::JoinSet};
 use tokio_util::sync::CancellationToken;
 
+mod faults;
 #[cfg(test)]
 pub(crate) mod fixture;
 mod hotspots;
 mod metrics;
 mod pacing;
 mod traffic;
-pub use metrics::{Failure, Metrics, PassCriteria, StageResult};
+pub use faults::{Fault, SessionFaults, StageFaults};
+pub use metrics::{Criterion, Failure, Metrics, PassCriteria, StageResult};
 pub use pacing::Pacing;
 pub(crate) use traffic::{ToolTrace, TrafficShape};
 

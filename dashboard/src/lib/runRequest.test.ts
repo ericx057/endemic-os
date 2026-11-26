@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { MAX_USE_CASE_BYTES, describePacing, emptyRunForm, runAgainForm, byteLength, validateRunForm, type RunForm } from './runRequest'
+import { MAX_USE_CASE_BYTES, describeFault, describePacing, describePersona, emptyFault, emptyPersona, emptyRunForm, runAgainForm, byteLength, validateRunForm, type PersonaForm, type RunForm } from './runRequest'
 
 const filled = (overrides: Partial<RunForm> = {}): RunForm => ({
   url: 'https://staging.example.com/mcp',
@@ -12,6 +12,8 @@ const filled = (overrides: Partial<RunForm> = {}): RunForm => ({
   thinkMinMs: '0',
   thinkMaxMs: '0',
   syncSessions: false,
+  faults: [],
+  personas: [],
   ...overrides,
 })
 
@@ -133,11 +135,86 @@ describe('form helpers', () => {
       thinkMinMs: '0',
       thinkMaxMs: '0',
       syncSessions: false,
+      faults: [],
+      personas: [],
     })
   })
 
   it('counts UTF-8 bytes', () => {
     expect(byteLength('abc')).toBe(3)
     expect(byteLength('é')).toBe(2)
+  })
+
+  it('sends faults only when declared, trimmed and typed', () => {
+    const faults = [
+      { ...emptyFault(), tool: ' search ', percent: '20', lastStage: '2' },
+      { ...emptyFault(), tool: 'refund', percent: '100', kind: 'latency' as const, delayMs: '400' },
+    ]
+    const result = validateRunForm(filled({ faults }))
+    expect(result.ok && result.body.faults).toEqual([
+      { tool: 'search', first_stage: 1, last_stage: 2, percent: 20, effect: { kind: 'error' } },
+      { tool: 'refund', first_stage: 1, last_stage: 1, percent: 100, effect: { kind: 'latency', delay_ms: 400 } },
+    ])
+    const none = validateRunForm(filled())
+    expect(none.ok && 'faults' in none.body).toBe(false)
+  })
+
+  it.each([
+    [{ tool: '' }, 'Fault 2: name a tool.'],
+    [{ firstStage: '3', lastStage: '2' }, 'Fault 2: stages must be whole numbers from 1, first no later than last.'],
+    [{ firstStage: '0' }, 'Fault 2: stages must be whole numbers from 1, first no later than last.'],
+    [{ percent: '0' }, 'Fault 2: share must be a whole percent from 1 to 100.'],
+    [{ percent: '101' }, 'Fault 2: share must be a whole percent from 1 to 100.'],
+    [{ kind: 'latency' as const, delayMs: '0' }, 'Fault 2: delay must be whole milliseconds, 1 or more.'],
+  ])('rejects fault %j', (overrides, message) => {
+    const valid = { ...emptyFault(), tool: 'search', percent: '10' }
+    expect(errorsOf(filled({ faults: [valid, { ...valid, ...overrides }] })).faults).toBe(message)
+  })
+
+  it('describes a fault in words', () => {
+    expect(describeFault({ tool: 'search', first_stage: 2, last_stage: 3, percent: 10, effect: { kind: 'latency', delay_ms: 250 } })).toBe(
+      'search: +250 ms on 10% of calls, stages 2 to 3',
+    )
+    expect(describeFault({ tool: 'refund', first_stage: 1, last_stage: 1, percent: 5, effect: { kind: 'timeout' } })).toBe('refund: timeout on 5% of calls, stage 1')
+  })
+})
+
+const persona = (overrides: Partial<PersonaForm> = {}): PersonaForm => ({ ...emptyPersona(), name: 'reads', weight: '100', ...overrides })
+
+describe('task mix', () => {
+  it('sends task_mix instead of the run-wide use case', () => {
+    const result = validateRunForm(
+      filled({
+        useCase: 'Ignored.',
+        personas: [persona({ weight: '70', useCase: 'Browse.', maxToolCalls: '4' }), persona({ name: 'writes', weight: '30' })],
+      }),
+    )
+    expect(result).toEqual({
+      ok: true,
+      body: {
+        target: { url: 'https://staging.example.com/mcp' },
+        credentials: { bearer: 'staging-token' },
+        task_mix: [
+          { name: 'reads', weight: 70, max_tool_calls: 4, use_case: 'Browse.' },
+          { name: 'writes', weight: 30 },
+        ],
+      },
+    })
+  })
+
+  it.each([
+    [[persona({ weight: '60' })], 'Weights must sum to 100%, not 60%.'],
+    [[persona({ weight: '50' }), persona({ weight: '50' })], 'Persona names must be unique.'],
+    [[persona({ name: ' ' })], 'Persona 1: the name must be 1 to 64 bytes.'],
+    [[persona({ weight: '0' })], 'Persona 1: the weight must be a whole percent of at least 1.'],
+    [[persona({ maxModelTurns: '0' })], 'Persona 1: turn and tool call limits must be whole numbers of at least 1, or blank.'],
+    [[persona({ useCase: 'x'.repeat(MAX_USE_CASE_BYTES + 1) })], 'Persona 1: the use case is over 4,096 bytes.'],
+  ])('rejects %j', (personas, message) => {
+    expect(errorsOf(filled({ personas }))).toEqual({ personas: message })
+  })
+
+  it('describes each persona in words', () => {
+    expect(describePersona({ name: 'reads', weight: 70, use_case: 'Browse.' })).toBe('70% of agents: Browse.')
+    expect(describePersona({ name: 'writes', weight: 30 })).toBe('30% of agents')
   })
 })

@@ -13,6 +13,7 @@ import { ErrorChart } from './charts/error-chart'
 import { HotspotsPanel } from './charts/hotspots-panel'
 import { LatencyChart } from './charts/latency-chart'
 import { TracesChart } from './charts/traces-chart'
+import { FailureExplanation } from './failure-explanation'
 import { NewRunSheet } from './new-run-sheet'
 import { OpenReport } from './open-report'
 import { PanelGrid } from './panel-grid'
@@ -112,6 +113,7 @@ export function Dashboard() {
           {message}
         </p>
       )}
+      {report?.explanation && <FailureExplanation explanation={report.explanation} />}
       <div className="flex flex-wrap items-center justify-between gap-3">
         <label className="flex items-center gap-3 text-sm text-muted-foreground">
           Per-stage panels show

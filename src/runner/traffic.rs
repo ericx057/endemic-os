@@ -124,15 +124,15 @@ impl Drop for ToolTrace<'_> {
 }
 
 #[derive(Clone, Default, Serialize)]
-struct SessionSample {
-    trace_id: String,
-    dispatches: Vec<Dispatch>,
+pub(crate) struct SessionSample {
+    pub(crate) trace_id: String,
+    pub(crate) dispatches: Vec<Dispatch>,
 }
 
 #[derive(Clone, Serialize)]
-struct Dispatch {
+pub(crate) struct Dispatch {
     at_us: u128,
-    tools: Vec<String>,
+    pub(crate) tools: Vec<String>,
 }
 
 #[derive(Clone, Serialize)]
@@ -142,7 +142,7 @@ pub struct TrafficReport {
     window_ms: u64,
     peak_calls_per_window: u64,
     p95_calls_per_occupied_window: Option<u64>,
-    session_samples: Vec<SessionSample>,
+    pub(crate) session_samples: Vec<SessionSample>,
     /// Tool calls per `window_ms` window from stage start, through the last busy window.
     calls_per_window: Vec<u64>,
 }

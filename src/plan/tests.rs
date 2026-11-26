@@ -131,7 +131,7 @@ async fn mcp_run_is_planned_from_discovery_and_generated_tasks() {
     assert_eq!(
         plan,
         json!({"target_kind":"mcp","tools":["search","refund"],"parallel_tools":["search"],
-            "tasks":TASKS,"hold_agents":null,"pacing":{"start_spread_ms":0,"think_min_ms":0,"think_max_ms":0,"sync_sessions":false},"agents_per_stage":[]})
+            "tasks":TASKS,"hold_agents":null,"pacing":{"start_spread_ms":0,"think_min_ms":0,"think_max_ms":0,"sync_sessions":false},"faults":[],"agents_per_stage":[]})
     );
     let planning = requests.lock().unwrap()[0].clone();
     assert!(
@@ -201,7 +201,7 @@ async fn http_run_turns_every_operation_into_a_tool() {
     assert_eq!(
         serde_json::to_value(plan).unwrap(),
         json!({"target_kind":"http","tools":["fail","createItem","getItem","large"],
-            "parallel_tools":["fail","getItem","large"],"tasks":[],"hold_agents":null,"pacing":{"start_spread_ms":0,"think_min_ms":0,"think_max_ms":0,"sync_sessions":false},"agents_per_stage":[]})
+            "parallel_tools":["fail","getItem","large"],"tasks":[],"hold_agents":null,"pacing":{"start_spread_ms":0,"think_min_ms":0,"think_max_ms":0,"sync_sessions":false},"faults":[],"agents_per_stage":[]})
     );
     assert_eq!(*auth.lock().unwrap(), [format!("Bearer {FIXTURE_TOKEN}")]);
 
@@ -261,8 +261,106 @@ async fn failures_before_stages_keep_what_was_decided() {
 }
 
 #[test]
-fn round_robin_cycles_through_tasks() {
-    let tasks = ["a".to_owned(), "b".to_owned(), "c".to_owned()];
-    let picked: Vec<_> = (0..7).map(|agent| task(&tasks, agent)).collect();
-    assert_eq!(picked, ["a", "b", "c", "a", "b", "c", "a"]);
+fn without_a_mix_agents_cycle_through_tasks() {
+    let group = Group {
+        name: String::new(),
+        weight: 100,
+        max_model_turns: 1,
+        max_tool_calls: 1,
+        tasks: 0..3,
+    };
+    let mix = TaskMix::new(vec![group], 3).unwrap();
+    let picked: Vec<_> = (0..205).map(|agent| mix.assign(agent).1).collect();
+    assert!(
+        picked
+            .iter()
+            .enumerate()
+            .all(|(agent, task)| *task == agent % 3)
+    );
+}
+
+#[tokio::test]
+async fn injected_errors_never_reach_the_target_and_unknown_tools_are_refused() {
+    let (addr, seen) = mcp_server(mcp_tools()).await;
+    let url = format!("http://{addr}/mcp");
+    let planner = Planner::loopback(Engine::scripted(inference(Arc::default())));
+    let fault: Fault = serde_json::from_value(json!({"tool":"search","first_stage":1,
+        "last_stage":1,"percent":100,"effect":{"kind":"error"}}))
+    .unwrap();
+    let request = |fault: Fault| RunRequest {
+        faults: vec![fault],
+        ..RunRequest::loopback(&url, None, None)
+    };
+    let unknown = Fault {
+        tool: "delete".into(),
+        ..fault.clone()
+    };
+    let error = planner.prepare(request(unknown)).await.err().unwrap().error;
+    assert_eq!(
+        error,
+        r#"fault tool "delete" is not one of the target's tools"#
+    );
+
+    let prepared = planner.prepare(request(fault.clone())).await.ok().unwrap();
+    assert_eq!(prepared.plan.faults, std::slice::from_ref(&fault));
+    let stage = crate::runner::StageFaults::new(1, 1, &prepared.plan.faults);
+    let metrics = Arc::new(Metrics::default().with_faults(stage));
+    seen.lock().unwrap().clear();
+    let result = (prepared.sessions)(0, metrics.clone()).await;
+    assert_eq!(result, Err(Failure::Injected));
+    metrics.finished(result);
+    let methods: Vec<_> = seen
+        .lock()
+        .unwrap()
+        .iter()
+        .map(|(method, _)| method.clone())
+        .collect();
+    assert!(
+        !methods.iter().any(|method| method == "tools/call"),
+        "{methods:?}"
+    );
+    let report = serde_json::to_value(metrics.snapshot(1, true)).unwrap();
+    assert_eq!(report["injected"]["search"]["errors"], 1);
+    assert_eq!(
+        (
+            report["injected_failures"].clone(),
+            report["target_errors"].clone()
+        ),
+        (json!(1), json!(0))
+    );
+}
+
+#[tokio::test]
+async fn a_task_mix_generates_tasks_per_persona_and_checks_budgets() {
+    let (addr, _) = mcp_server(mcp_tools()).await;
+    let url = format!("http://{addr}/mcp");
+    let requests = Arc::new(Mutex::new(Vec::new()));
+    let planner = Planner::loopback(Engine::scripted(inference(requests.clone())));
+    let request = |mix: Value| RunRequest {
+        task_mix: serde_json::from_value(mix).unwrap(),
+        ..RunRequest::loopback(&url, None, None)
+    };
+    let mix = json!([{"name":"reads","weight":70,"use_case":"Browse."},
+        {"name":"writes","weight":30,"max_tool_calls":4}]);
+    let prepared = planner.prepare(request(mix)).await.ok().unwrap();
+    assert_eq!(prepared.plan.tasks, [TASKS, TASKS].concat());
+    assert_eq!(
+        serde_json::to_value(&prepared.plan.task_mix).unwrap(),
+        json!([{"name":"reads","weight":70,"max_model_turns":8,"max_tool_calls":8,"tasks":{"start":0,"end":2}},
+            {"name":"writes","weight":30,"max_model_turns":8,"max_tool_calls":4,"tasks":{"start":2,"end":4}}])
+    );
+    let prompts: Vec<String> = requests
+        .lock()
+        .unwrap()
+        .iter()
+        .map(|body| body["messages"][1]["content"].to_string())
+        .collect();
+    assert!(prompts[0].contains("Browse.") && !prompts[1].contains("Browse."));
+
+    let over = json!([{"name":"reads","weight":100,"max_tool_calls":9}]);
+    let error = planner.prepare(request(over)).await.err().unwrap().error;
+    assert_eq!(
+        error,
+        "persona reads max_tool_calls must be from 1 to 8 (AGENT_MAX_TOOL_CALLS)"
+    );
 }

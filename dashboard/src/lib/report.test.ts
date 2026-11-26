@@ -114,6 +114,8 @@ describe('parseReport', () => {
       tasks: ['Find an order.'],
       hold_agents: null,
       pacing: { start_spread_ms: 0, think_min_ms: 0, think_max_ms: 0, sync_sessions: false },
+      faults: [{ tool: 'search', first_stage: 1, last_stage: 2, percent: 10, effect: { kind: 'latency', delay_ms: 300 } }],
+      task_mix: [],
       agents_per_stage: [25, 50],
     }
     expect(parseReport({ ...report([stage()]), plan }).plan).toEqual(plan)
@@ -121,6 +123,38 @@ describe('parseReport', () => {
     expect(parseReport(report([stage()])).plan).toBeNull()
     expect(() => parseReport({ ...report([stage()]), plan: { ...plan, target_kind: 'ftp' } })).toThrow('plan.target_kind')
     expect(() => parseReport({ ...report([stage()]), plan: { ...plan, tasks: 'one' } })).toThrow('plan.tasks')
+    const persona = { name: 'writes', weight: 100, max_model_turns: 8, max_tool_calls: 4, tasks: { start: 0, end: 1 } }
+    expect(parseReport({ ...report([stage()]), plan: { ...plan, task_mix: [persona] } }).plan?.task_mix).toEqual([persona])
+    expect(() => parseReport({ ...report([stage()]), plan: { ...plan, task_mix: [{ ...persona, weight: 'most' }] } })).toThrow('plan.task_mix[0].weight')
+  })
+
+  it('reads the faults active per stage and counts injections apart from target errors', () => {
+    const active = { tool: 'search', first_stage: 1, last_stage: 1, percent: 20, effect: { kind: 'error' } }
+    const faulted = stage({ faults: [active], injected: { search: { delayed: 0, errors: 7, timeouts: 1 } }, injected_failures: 5 })
+    const parsed = parseReport(report([faulted, stage()])).stages
+    expect(parsed[0].faults).toEqual([active])
+    expect(parsed[1]).toMatchObject({ faults: [], injected: {}, injected_failures: 0 })
+    const [row, plain] = stageTableRows(parsed)
+    expect(row).toMatchObject({ injectedCalls: 8, injectedFailures: 2.5, faults: [active] })
+    expect(plain).toMatchObject({ injectedCalls: 0, injectedFailures: 0, faults: [] })
+    expect(row.errorShare).toBe(plain.errorShare)
+    expect(() => parseReport(report([stage({ faults: [{ ...active, effect: { kind: 'crash' } }] })]))).toThrow('stages[0].faults[0].effect.kind')
+  })
+
+  it('reads the failed criterion and the explanation of a failed run', () => {
+    const explanation = {
+      agents: 50,
+      criterion: 'error_budget',
+      baseline_agents: 25,
+      error_rate: { tool: 'refund', from: 0.1, to: 0.5, began_at_agents: 50 },
+      p95_ms: null,
+      sample_trace_ids: ['abc123'],
+    }
+    const parsed = parseReport({ ...report([stage(), stage({ agents: 50, passed: false, failed_criterion: 'error_budget' })]), status: 'failed_stage', explanation })
+    expect(parsed.explanation).toEqual(explanation)
+    expect(parsed.stages.map((s) => s.failed_criterion)).toEqual([null, 'error_budget'])
+    expect(parseReport(report([stage()])).explanation).toBeNull()
+    expect(() => parseReport({ ...report([stage()]), explanation: { ...explanation, criterion: 'vibes' } })).toThrow('explanation.criterion')
   })
 
   it('reads a run that failed before any stage, with its error and partial plan', () => {
@@ -206,6 +240,9 @@ describe('chart rows', () => {
       runnerP99: 12,
       toolCalls: 9,
       peakBurst: 5,
+      faults: [],
+      injectedCalls: 0,
+      injectedFailures: 0,
     })
   })
 })

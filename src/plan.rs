@@ -5,10 +5,11 @@ use crate::{
     config::{self, Env},
     egress::Egress,
     http_api, mcp,
-    open_weight::{Engine, model_tools},
+    open_weight::{Budget, Engine, model_tools},
     request::RunRequest,
-    runner::{Failure, Metrics, Pacing},
+    runner::{Failure, Fault, Metrics, Pacing, SessionFaults},
     target::{Target, Tool, Wire},
+    task_mix::{Group, TaskMix},
 };
 use reqwest::{
     Url,
@@ -16,7 +17,15 @@ use reqwest::{
 };
 use serde::Serialize;
 use serde_json::{Value, value::RawValue};
-use std::{future::Future, pin::Pin, sync::Arc, time::Duration};
+use std::{
+    future::Future,
+    pin::Pin,
+    sync::{
+        Arc,
+        atomic::{AtomicU64, Ordering::Relaxed},
+    },
+    time::Duration,
+};
 
 pub type Session = Pin<Box<dyn Future<Output = Result<(), Failure>> + Send>>;
 /// Starts one agent session from the agent's index and the stage's metrics.
@@ -38,6 +47,9 @@ pub struct Plan {
     pub tasks: Vec<String>,
     pub hold_agents: Option<usize>,
     pub pacing: Pacing,
+    pub faults: Vec<Fault>,
+    #[serde(skip_serializing_if = "Vec::is_empty")]
+    pub task_mix: Vec<Group>,
     pub agents_per_stage: Vec<usize>,
 }
 
@@ -53,6 +65,8 @@ impl Plan {
             tasks: Vec::new(),
             hold_agents: request.hold_agents,
             pacing: request.pacing,
+            faults: request.faults.clone(),
+            task_mix: Vec::new(),
             agents_per_stage: Vec::new(),
         }
     }
@@ -111,6 +125,10 @@ impl Planner {
         };
         plan.tools = names(false);
         plan.parallel_tools = names(true);
+        let fits = |fault: &Fault| fault.fits(&plan.tools, self.timeout);
+        if let Err(error) = request.faults.iter().try_for_each(fits) {
+            return Err(Failed { plan, error });
+        }
         // more tools than RUN_MAX_TOOLS fails the run; there is no selection heuristic.
         if tools.is_empty() || tools.len() > self.max_tools {
             let error = format!(
@@ -124,21 +142,62 @@ impl Planner {
             Ok(model_tools) => model_tools,
             Err(error) => return Err(Failed { plan, error }),
         };
-        let use_case = request.use_case.as_deref();
-        match self.engine.tasks(&tools, use_case, self.task_count).await {
-            Ok(tasks) => plan.tasks = tasks,
+        let groups = match self.workload(&request, &tools).await {
+            Ok((groups, tasks)) => {
+                plan.tasks = tasks;
+                groups
+            }
             Err(error) => return Err(Failed { plan, error }),
+        };
+        if !request.task_mix.is_empty() {
+            plan.task_mix = groups.clone();
         }
+        let mix = match TaskMix::new(groups, plan.tasks.len()) {
+            Ok(mix) => mix,
+            Err(error) => return Err(Failed { plan, error }),
+        };
         let labels = match &target {
             Target::Mcp(_) => plan.tools.clone(),
             Target::Http(target) => target.labels(),
         };
-        let sessions = sessions(self.engine.clone(), target, model_tools, plan.tasks.clone());
+        let sessions = sessions(
+            self.engine.clone(),
+            target,
+            model_tools,
+            plan.tasks.clone(),
+            mix,
+            self.timeout,
+        );
         Ok(Prepared {
             plan,
             labels,
             sessions,
         })
+    }
+
+    async fn workload(
+        &self,
+        request: &RunRequest,
+        tools: &[Tool],
+    ) -> Result<(Vec<Group>, Vec<String>), String> {
+        let (mut groups, mut tasks) = (Vec::new(), Vec::new());
+        for persona in request.personas() {
+            let named = |error: String| format!("persona {} {error}", persona.name);
+            let budget = (self.engine)
+                .budget(persona.max_model_turns, persona.max_tool_calls)
+                .map_err(named)?;
+            let start = tasks.len();
+            let use_case = persona.use_case.as_deref();
+            tasks.extend(self.engine.tasks(tools, use_case, self.task_count).await?);
+            groups.push(Group {
+                name: persona.name,
+                weight: persona.weight,
+                max_model_turns: budget.turns,
+                max_tool_calls: budget.calls,
+                tasks: start..tasks.len(),
+            });
+        }
+        Ok((groups, tasks))
     }
 
     async fn target(&self, request: &RunRequest) -> Result<(Target, Vec<Tool>), String> {
@@ -203,25 +262,29 @@ impl Planner {
     }
 }
 
-/// Round-robin: agent `i` pursues task `i % tasks.len()` in every stage.
-fn task(tasks: &[String], agent: usize) -> &str {
-    &tasks[agent % tasks.len()]
-}
-
 fn sessions(
     engine: Arc<Engine>,
     target: Target,
     tools: Arc<RawValue>,
     tasks: Vec<String>,
+    mix: TaskMix,
+    timeout: Duration,
 ) -> Sessions {
     let target = Arc::new(target);
     let tasks: Arc<[String]> = tasks.into();
+    let rounds = AtomicU64::new(0);
     Arc::new(move |agent, metrics| {
         let (engine, target, tools, tasks) =
             (engine.clone(), target.clone(), tools.clone(), tasks.clone());
+        let faults = SessionFaults::new(agent, rounds.fetch_add(1, Relaxed), timeout);
+        let (group, index) = mix.assign(agent);
+        let budget = Budget {
+            turns: group.max_model_turns,
+            calls: group.max_tool_calls,
+        };
         Box::pin(async move {
             engine
-                .session(&target, &tools, task(&tasks, agent), &metrics)
+                .session(&target, &tools, &tasks[index], budget, &metrics, faults)
                 .await
         })
     })

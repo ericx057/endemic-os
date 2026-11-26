@@ -136,6 +136,13 @@ async fn capacity_does_not_advance_past_an_inference_limited_stage() {
     assert_eq!(report.stages.len(), 1);
     assert!(!report.stages[0].passed);
     assert!(report.stages[0].result.inference_throttles > 0);
+    assert_eq!(
+        report.stages[0].failed_criterion,
+        Some(runner::Criterion::SessionsCompleted)
+    );
+    let explanation = serde_json::to_value(&report.explanation).unwrap();
+    assert_eq!(explanation["criterion"], "sessions_completed");
+    assert_eq!(explanation["agents"], 2);
 }
 
 #[tokio::test(start_paused = true)]
@@ -457,8 +464,8 @@ async fn a_run_that_fails_before_stages_reports_failed_with_its_plan() {
         report.unwrap(),
         serde_json::json!({"id":1,"status":"failed","highest_passing_agents":null,
             "plan":{"target_kind":"mcp","tools":["search"],"parallel_tools":[],"tasks":[],
-                "hold_agents":null,"pacing":{"start_spread_ms":0,"think_min_ms":0,"think_max_ms":0,"sync_sessions":false},"agents_per_stage":[]},
-            "error":"task generation failed: fixture","stages":[]})
+                "hold_agents":null,"pacing":{"start_spread_ms":0,"think_min_ms":0,"think_max_ms":0,"sync_sessions":false},"faults":[],"agents_per_stage":[]},
+            "error":"task generation failed: fixture","stages":[],"explanation":null})
     );
 }
 
